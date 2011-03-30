@@ -861,7 +861,7 @@
             <arg value="${src.generated.java}/javax/media/opengl" />
             <classpath refid="pipeline.classpath" />
         </java>
-    </target>          
+    </target>
 
     <target name="java.generate.composable.pipeline.es2" depends="java.generate.composable.pipeline.check.es2" unless="java.generate.composable.pipeline.skip.es2">
         <java classname="com.jogamp.gluegen.opengl.BuildComposablePipeline" fork="yes" failonerror="true">
@@ -915,7 +915,7 @@
             <arg value="${src.generated.java}/javax/media/opengl" />
             <classpath refid="pipeline.classpath" />
         </java>
-    </target>          
+    </target>
 
     <target name="java.generate.composable.pipeline" depends="java.generate.composable.pipeline.es1, java.generate.composable.pipeline.es2, java.generate.composable.pipeline.gl2, java.generate.composable.pipeline.gl3, java.generate.composable.pipeline.gl4">
     </target>
@@ -935,7 +935,7 @@
         <uptodate property="java.generate.composable.pipeline.custom.skip.glfixfunc"
                   srcfile="${classes}/javax/media/opengl/GL2ES1.class"
                   targetfile="${src.generated.java}/jogamp/opengl/util/glsl/fixedfunc/FixedFuncImpl.java" />
-    </target>        
+    </target>
     <target name="java.generate.composable.pipeline.custom.glfixfunc" depends="java.generate.composable.pipeline.custom.check.glfixfunc" unless="java.generate.composable.pipeline.custom.skip.glfixfunc">
         <java classname="com.jogamp.gluegen.opengl.BuildComposablePipeline" fork="yes" failonerror="true">
             <arg value="javax.media.opengl.GL2ES1" />
@@ -950,6 +950,53 @@
     <target name="java.generate.composable.pipeline.custom" depends="init, common.gluegen.build, java.generate.composable.pipeline.custom.glfixfunc">
     </target>
 
+    <!-- ================================================================== -->
+    <!-- 
+       	Builds features 
+      -->
+    <target name="java.build.features" depends="java.build.gl4static"/>
+    
+    <target name="java.build.gl4static">
+        <echo message="Generating GL4 static implementation" />
+        <antcall target="java.generate.copy2temp" inheritRefs="true" />
+        <gluegen src="${stub.includes.opengl}/gl4bc.c" 
+                 outputRootDir="${build.jogl}"
+                 config="${config.jogl}/gl-static-gl4bc.cfg"
+                 includeRefid="stub.includes.fileset.all.gldesktop"
+                 emitter="com.jogamp.gluegen.opengl.GLEmitter"
+                 debug="false">
+            <classpath refid="gluegen-gl.classpath" />
+        </gluegen>
+        
+        <javac destdir="${classes}"
+               includes="jogamp/opengl/gl4/GL4Static.java"
+               fork="yes"
+               memoryMaximumSize="${javac.memorymax}"
+               includeAntRuntime="false"
+               source="${target.sourcelevel}" debug="${javacdebug}" debuglevel="${javacdebuglevel}">
+            <classpath refid="nativewindow_gluegen.classpath"/>
+            <src path="${src.java}" />
+            <src path="${src.generated.java}" />
+        </javac>        
+	
+		<java classname="com.jogamp.gluegen.opengl.BuildStaticDebugger" fork="yes" failonerror="true">
+			<arg value="${src.generated.java}/jogamp/opengl/gl4"/>
+			<arg value="jogamp.opengl.gl4"/>			
+			<arg value="DebugGL4Static"/>
+			<arg value="jogamp.opengl.gl4.GL4Static"/>
+			
+			<sysproperty key="java.library.path" path="${obj.gluegen}:${obj.nativewindow}"/>
+			
+			<classpath location="${gluegen.jar}" />
+			<classpath location="${build.nativewindow}/classes"/>
+			<classpath location="${classes}"/>
+			<classpath location="${all.genj.path}"/>
+			<classpath refid="pipeline.classpath"/>
+		</java>
+
+	</target>
+	
+	
     <!-- ================================================================== -->
     <!-- 
        - Compile the original and generated source.  The composable pipelines
@@ -986,7 +1033,7 @@
         </javac>
     </target>
 
-    <target name="java.compile.secondpass" depends="java.generate.composable.pipeline, java.compile.secondpass.javase" />
+    <target name="java.compile.secondpass" depends="java.generate.composable.pipeline, java.build.features, java.compile.secondpass.javase" />
 
     <target name="java.compile.thirdpass.javase">
         <!-- Perform the third pass Java compile; everything including fixed function emulation. -->
@@ -1218,6 +1265,7 @@
           <include name="${rootrel.src.c.openmax}/com_jogamp_openmax_OMXInstance.c"  if="useOpenMAX"/>
 
           <include name="${rootrel.generated.c.jogl}/gl4/GL4bcImpl_JNI.c"/>
+          <include name="${rootrel.generated.c.jogl}/gl4/GL4Static_JNI.c"/>
           <!--include name="${rootrel.generated.c.jogl}/GLU_JNI.c"/ EMPTY -->
           <include name="${rootrel.generated.c.jogl}/gl2/GLUgl2_JNI.c"/>
           <include name="${rootrel.generated.c.jogl}/X11/GLX*.c" if="isX11"/>
