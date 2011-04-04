@@ -16,7 +16,7 @@ static
 					  new Object[] { new GLProcAddressResolver() }, 
 					  GL4Static.class.getClassLoader());
 	GLDrawableFactoryImpl factory = (GLDrawableFactoryImpl) GLDrawableFactory.getFactory(GLProfile.getMaxProgrammable());
-	
+
 	procAddressTable.reset(factory.getGLDynamicLookupHelper(0));
 }
 
@@ -30,7 +30,7 @@ public static void glOrthof(float left, float right, float bottom, float top, fl
 {
 	glOrtho((double)left, (double)right, (double)bottom, (double)top, (double)zNear, (double)zFar); 
 }
-	
+
 /* FIXME: refactor dependence on Java 2D / JOGL bridge
 
 // Tracks creation and destruction of server-side OpenGL objects when
@@ -163,12 +163,15 @@ private static boolean haveGL15;
 private static boolean haveGL21;
 private static boolean haveARBVertexBufferObject;
 */
-/*
+
+/**
+  This function always returns true. Don't use this
+*/
 public static boolean isFunctionAvailable(String glFunctionName)
 {
-	return GLContextManager.isFunctionAvailable(glFunctionName);
+	return true;
+//	return GLContextManager.isFunctionAvailable(glFunctionName);
 }
-*/
 /*
 private static void initBufferObjectExtensionChecks() {
   if (bufferObjectExtensionsInitialized)
@@ -240,74 +243,106 @@ private static boolean checkBufferObject(boolean extension1,
 
 private static boolean checkArrayVBODisabled(boolean throwException) { 
   initBufferObjectExtensionChecks();
-  return checkBufferObject(true,
-                    true,
+  /*
+  return checkBufferObject(GLContextManager.isHaveGL15(),
+                    GLContextManager.isHaveARBVertexBufferObject(),
                     false,
                     false,
                     GL_ARRAY_BUFFER,
                     "array vertex_buffer_object", throwException);
+  */
+  return false;
 }
 
 private static boolean checkArrayVBOEnabled(boolean throwException) { 
   initBufferObjectExtensionChecks();
-  return checkBufferObject(true,
-                    true,
+  /*
+  return checkBufferObject(GLContextManager.isHaveGL15(),
+                    GLContextManager.isHaveARBVertexBufferObject(),
                     false,
                     true,
                     GL_ARRAY_BUFFER,
                     "array vertex_buffer_object", throwException);
+   */
+   return true;
 }
 
 private static boolean checkElementVBODisabled(boolean throwException) { 
   initBufferObjectExtensionChecks();
-  return checkBufferObject(true,
-                    true,
+  /*
+  return checkBufferObject(GLContextManager.isHaveGL15(),
+                    GLContextManager.isHaveARBVertexBufferObject(),
                     false,
                     false,
                     GL_ELEMENT_ARRAY_BUFFER,
                     "element vertex_buffer_object", throwException);
+    */
+    return false;
 }
 
 private static boolean checkElementVBOEnabled(boolean throwException) { 
   initBufferObjectExtensionChecks();
-  return checkBufferObject(true,
-                    true,
+  /*
+  return checkBufferObject(GLContextManager.isHaveGL15(),
+                    GLContextManager.isHaveARBVertexBufferObject(),
                     false,
                     true,
                     GL_ELEMENT_ARRAY_BUFFER,
                     "element vertex_buffer_object", throwException);
+    */
+    return true;
 }
 
 private static boolean checkUnpackPBODisabled(boolean throwException) { 
   initBufferObjectExtensionChecks();
-  return checkBufferObject(true, true, true,
+  /*
+  return checkBufferObject(GLContextManager.isHaveARBPixelBufferObject(),
+                    GLContextManager.isHaveEXTPixelBufferObject(),
+                    GLContextManager.isHaveGL21(),
                     false,
                     GL_PIXEL_UNPACK_BUFFER,
                     "unpack pixel_buffer_object", throwException);
+    */
+    return false;
 }
 
 private static boolean checkUnpackPBOEnabled(boolean throwException) { 
   initBufferObjectExtensionChecks();
-  return checkBufferObject(true, true, true,
+  /*
+  return checkBufferObject(GLContextManager.isHaveARBPixelBufferObject(),
+                    GLContextManager.isHaveEXTPixelBufferObject(),
+                    GLContextManager.isHaveGL21(),
                     true,
                     GL_PIXEL_UNPACK_BUFFER,
                     "unpack pixel_buffer_object", throwException);
+	*/
+	return true;
 }
 
 private static boolean checkPackPBODisabled(boolean throwException) { 
   initBufferObjectExtensionChecks();
-  return checkBufferObject(true, true, true,
+  /*
+  return checkBufferObject(GLContextManager.isHaveARBPixelBufferObject(),
+                    GLContextManager.isHaveEXTPixelBufferObject(),
+                    GLContextManager.isHaveGL21(),
                     false,
                     GL_PIXEL_PACK_BUFFER,
                     "pack pixel_buffer_object", throwException);
+    */
+    return false;
 }
 
 private static boolean checkPackPBOEnabled(boolean throwException) { 
   initBufferObjectExtensionChecks();
-  return checkBufferObject(true, true, true,
+  /*
+  return checkBufferObject(GLContextManager.isHaveARBPixelBufferObject(),
+                    GLContextManager.isHaveEXTPixelBufferObject(),
+                    GLContextManager.isHaveGL21(),
                     true,
                     GL_PIXEL_PACK_BUFFER,
                     "pack pixel_buffer_object", throwException);
+    */
+    return true;
 }
 
 public static boolean glIsPBOPackEnabled() {
