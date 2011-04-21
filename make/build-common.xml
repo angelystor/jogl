@@ -340,6 +340,9 @@
 
         <property name="jogl.gldesktop.jar"             value="${build.jogl}/jogl.gldesktop.jar" />
         <property name="jogl.gldesktop.dbg.jar"         value="${build.jogl}/jogl.gldesktop.dbg.jar" />
+    	
+    	<!-- static jogl jar -->
+    	<property name="jogl.static.desktop.jar" value="${build.jogl}/jogl.static.jar"/>
 
         <property name="jogl.omx.jar"                   value="${build.jogl}/jogl.omx.jar" />
 

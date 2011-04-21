@@ -110,6 +110,9 @@
 
         <property name="java.part.gldesktop"
                   value="jogamp/opengl/**/gl2/** jogamp/opengl/**/gl3/** jogamp/opengl/**/gl4/**"/>
+    	
+        <property name="java.part.static.gldesktop" 
+        		  value="jogamp/opengl/gl4/Debug* jogamp/opengl/gl4/GL4Static* jogamp/opengl/gl4/GL4bcProc*"/>    	
 
         <property name="java.part.gldesktop.dbg"
                   value="javax/media/opengl/TraceGL2.* javax/media/opengl/DebugGL2.* javax/media/opengl/TraceGL2GL3.* javax/media/opengl/DebugGL2GL3.* javax/media/opengl/TraceGL3.* javax/media/opengl/DebugGL3.* javax/media/opengl/TraceGL3bc.* javax/media/opengl/DebugGL3bc.* javax/media/opengl/TraceGL4.* javax/media/opengl/DebugGL4.* javax/media/opengl/TraceGL4bc.* javax/media/opengl/DebugGL4bc.*"/>
@@ -1003,6 +1006,11 @@
 			<classpath refid="pipeline.classpath"/>
 		</java>
 
+    	
+    	<!-- this doesn't include the debug version though, will need to check it out later when got more time -->
+		<jar manifest="${build.jogl}/tempversion" destfile="${jogl.static.desktop.jar}" filesonly="true">
+			    	            <fileset dir="${classes}"  includes="${java.part.static.gldesktop}"/>
+		</jar>     	
 	</target>
 	
 	
@@ -1563,7 +1571,9 @@
                      includes="${java.part.gldesktop} ${java.part.openmax}"
                      excludes="${java.part.gldesktop.dbg} ${java.part.glugldesktop}"/>
         </jar>
-
+    	<jar manifest="${build.jogl}/tempversion" destfile="${jogl.static.desktop.jar}" filesonly="true">
+    				    	            <fileset dir="${classes}"  includes="${java.part.static.gldesktop}"/>
+    			</jar>     	
         <!-- misc -->
         <jar manifest="${build.jogl}/tempversion" destfile="${jogl.gldesktop.dbg.jar}" filesonly="true">
             <fileset dir="${classes}"
