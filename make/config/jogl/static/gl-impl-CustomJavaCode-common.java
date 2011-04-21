@@ -165,11 +165,11 @@ private static boolean haveARBVertexBufferObject;
 */
 
 /**
-  This function always returns true. Don't use this
+  Call this function only if a context is current
 */
 public static boolean isFunctionAvailable(String glFunctionName)
 {
-	return true;
+	return ((GLContextImpl)GLContext.getCurrent()).isFunctionAvailable(glFunctionName);
 //	return GLContextManager.isFunctionAvailable(glFunctionName);
 }
 /*
