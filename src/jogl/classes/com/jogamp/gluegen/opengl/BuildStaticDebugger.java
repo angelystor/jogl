@@ -25,7 +25,9 @@
  * authors and should not be interpreted as representing official policies, either expressed
  * or implied, of JogAmp Community.
  */
-
+/**
+ * Copyright 2011 Animoto Productions
+ */
 package com.jogamp.gluegen.opengl;
 
 import java.io.BufferedWriter;
@@ -41,6 +43,7 @@ import java.util.List;
 
 import com.jogamp.gluegen.JavaType;
 
+//import com.animoto.opengl.GL4Static;
 /**
  * @author angelystor
  *
@@ -320,12 +323,68 @@ public class BuildStaticDebugger
 	{
 		StringBuffer res = new StringBuffer();
 		
+		res.append("boolean errorARB = isFunctionAvailable(\"glGetDebugMessageLogARB\");\n");
+		
+		// for debugging: lets print result of glGetError AND glDebugMessageLog
+		//res.append("if (!errorARB) {\n");
 		res.append("int error = " + clazz.getSimpleName() + ".glGetError();\n");
 		
 		res.append("String epilogue = ");		
 		res.append("(error == GL_NO_ERROR ? \"INFO\" : \"WARN\") + \" glGetError(): \" + error;\n");
 		
 		res.append("System.err.println(epilogue);");		
+		
+		// for debugging
+		//res.append("}\n");
+		//res.append("else {\n");		
+		res.append("if (errorARB) {\n");
+		
+		//int count, int bufsize, int[] sources, int sources_offset, int[] types, int types_offset, int[] ids, int ids_offset, int[] severities, int severities_offset, int[] lengths,
+		//int lengths_offset, byte[] messageLog, int messageLog_offset)  {
+
+		res.append(clazz.getSimpleName() + ".glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);\n");
+		res.append(clazz.getSimpleName() + ".glDebugMessageControlARB(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, null, true);\n");
+		
+		res.append("int[] count_buf = new int[1];\n");
+		
+		//get the maximum size of messages stored
+		res.append(clazz.getSimpleName() + ".glGetIntegerv(GL_DEBUG_LOGGED_MESSAGES_ARB, count_buf, 0);\n");
+		//res.append("int count = count_buf[0];\n");
+		
+		//default to 1
+		res.append("int count = 1;\n");
+		
+		//get largest message size stored
+		res.append(clazz.getSimpleName() + ".glGetIntegerv(GL_MAX_DEBUG_MESSAGE_LENGTH_ARB, count_buf, 0);\n");
+		res.append("int bufsize = count_buf[0];\n");		
+		
+		res.append("int[] sources = new int[count];\n");
+		res.append("int sources_offset = 0;\n");
+		res.append("int[] types = new int[count];\n");
+		res.append("int types_offset = 0;\n");
+		res.append("int[] ids = new int[count];\n");
+		res.append("int ids_offset = 0;\n");
+		res.append("int[] severities = new int[count];\n");
+		res.append("int severities_offset = 0;\n");
+		res.append("int[] lengths = new int[count];\n");
+		res.append("int lengths_offset = 0;\n");
+		res.append("byte[] messageLog = new byte[4096];\n");
+		res.append("int messageLog_offset = 0;\n");
+		
+		res.append("if (count != 0) {\n");
+		
+		res.append("int arberror = " + clazz.getSimpleName() + ".glGetDebugMessageLogARB(count, bufsize," +
+																					 "sources, sources_offset," +
+																					 "types, types_offset," +
+																					 "ids, ids_offset," +
+																					 "severities, severities_offset," +
+																					 "lengths, lengths_offset," +
+																					 "messageLog, messageLog_offset);\n");
+		
+		res.append("System.err.println(arberror + \" \" + bufsize);\n");
+		
+		res.append("}\n");
+		res.append("}\n");
 		
 		return res.toString();		
 	}
@@ -337,7 +396,7 @@ public class BuildStaticDebugger
 		if (sourceLevel == SourceLevel.FIVE)
 		{
 			out.println("public enum LogLevel {DEBUG, INFO};");
-			out.println("private static LogLevel logLevel = LogLevel.DEBUG;");
+			out.println("private static LogLevel logLevel = LogLevel.INFO;");
 			
 			out.println("public static void setLogLevel(LogLevel ll) { logLevel = ll;}");
 		}
@@ -345,7 +404,7 @@ public class BuildStaticDebugger
 		{
 			out.println("public static final byte DEBUG = 1;");
 			out.println("public static final byte INFO = 2;");
-			out.println("private static byte logLevel = DEBUG;");
+			out.println("private static byte logLevel = INFO;");
 			
 			out.println("public static void setLogLevel(byte b) {logLevel = b;}");
 		}
@@ -402,8 +461,11 @@ public class BuildStaticDebugger
 	public static void main(String[] args) throws Throwable
 	{
 		BuildStaticDebugger debugger = new BuildStaticDebugger(args[0], args[1], args[2], Class.forName(args[3], false, BuildStaticDebugger.class.getClassLoader()));  //BuildComposablePipeline.getClass(args[3]));
-				
+		
+		//BuildStaticDebugger debugger = new BuildStaticDebugger("/Users/angelystor/", "test", "TestGL", GL4StaticBase.class);
+		
 		debugger.emit();
 	}
 
 }
+

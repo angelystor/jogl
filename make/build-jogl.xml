@@ -981,7 +981,7 @@
         </gluegen>
         
         <javac destdir="${classes}"
-               includes="jogamp/opengl/gl4/GL4Static.java"
+               includes="jogamp/opengl/gl4/GL4StaticBase.java"
                fork="yes"
                memoryMaximumSize="${javac.memorymax}"
                includeAntRuntime="false"
@@ -994,8 +994,8 @@
 		<java classname="com.jogamp.gluegen.opengl.BuildStaticDebugger" fork="yes" failonerror="true">
 			<arg value="${src.generated.java}/jogamp/opengl/gl4"/>
 			<arg value="jogamp.opengl.gl4"/>			
-			<arg value="DebugGL4Static"/>
-			<arg value="jogamp.opengl.gl4.GL4Static"/>
+			<arg value="GL4Static"/>
+			<arg value="jogamp.opengl.gl4.GL4StaticBase"/>
 			
 			<sysproperty key="java.library.path" path="${obj.gluegen}:${obj.nativewindow}"/>
 			
@@ -1282,7 +1282,7 @@
           <include name="${rootrel.src.c.openmax}/com_jogamp_openmax_OMXInstance.c"  if="useOpenMAX"/>
 
           <include name="${rootrel.generated.c.jogl}/gl4/GL4bcImpl_JNI.c"/>
-          <include name="${rootrel.generated.c.jogl}/gl4/GL4Static_JNI.c"/>
+          <include name="${rootrel.generated.c.jogl}/gl4/GL4StaticBase_JNI.c"/>
           <!--include name="${rootrel.generated.c.jogl}/GLU_JNI.c"/ EMPTY -->
           <include name="${rootrel.generated.c.jogl}/gl2/GLUgl2_JNI.c"/>
           <include name="${rootrel.generated.c.jogl}/X11/GLX*.c" if="isX11"/>

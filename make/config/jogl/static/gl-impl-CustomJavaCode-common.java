@@ -14,7 +14,7 @@ static
 	procAddressTable = (ProcAddressTable)ReflectionUtil.createInstance("jogamp.opengl.gl4.GL4bcProcAddressTable", 
 					  new Class[] { FunctionAddressResolver.class },
 					  new Object[] { new GLProcAddressResolver() }, 
-					  GL4Static.class.getClassLoader());
+					  GL4StaticBase.class.getClassLoader());
 	GLDrawableFactoryImpl factory = (GLDrawableFactoryImpl) GLDrawableFactory.getFactory(GLProfile.getMaxProgrammable());
 
 	procAddressTable.reset(factory.getGLDynamicLookupHelper(0));

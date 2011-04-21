@@ -6,7 +6,7 @@
  */
  
 JNIEXPORT jlong JNICALL 
-Java_jogamp_opengl_gl4_GL4Static_dispatch_1glMapBuffer(JNIEnv *env, jobject _unused, jint target, jint access, jlong glProcAddress) {
+Java_jogamp_opengl_gl4_GL4StaticBase_dispatch_1glMapBuffer(JNIEnv *env, jobject _unused, jint target, jint access, jlong glProcAddress) {
   PFNGLMAPBUFFERPROC ptr_glMapBuffer;
   void * _res;
   ptr_glMapBuffer = (PFNGLMAPBUFFERPROC) (intptr_t) glProcAddress;
@@ -21,7 +21,7 @@ Java_jogamp_opengl_gl4_GL4Static_dispatch_1glMapBuffer(JNIEnv *env, jobject _unu
  *     C function: void * glMapNamedBufferEXT(GLenum target, GLenum access);
  */
 JNIEXPORT jlong JNICALL 
-Java_jogamp_opengl_gl4_GL4Static_dispatch_1glMapNamedBufferEXT(JNIEnv *env, jobject _unused, jint target, jint access, jlong glProcAddress) {
+Java_jogamp_opengl_gl4_GL4StaticBase_dispatch_1glMapNamedBufferEXT(JNIEnv *env, jobject _unused, jint target, jint access, jlong glProcAddress) {
   PFNGLMAPNAMEDBUFFEREXTPROC ptr_glMapNamedBufferEXT;
   void * _res;
   ptr_glMapNamedBufferEXT = (PFNGLMAPNAMEDBUFFEREXTPROC) (intptr_t) glProcAddress;
@@ -36,6 +36,6 @@ Java_jogamp_opengl_gl4_GL4Static_dispatch_1glMapNamedBufferEXT(JNIEnv *env, jobj
  *     C function: jobject newDirectByteBuffer(jlong addr, jlong capacity);
  */
 JNIEXPORT jobject JNICALL
-Java_jogamp_opengl_gl4_GL4Static_newDirectByteBuffer(JNIEnv *env, jobject _unused, jlong addr, jlong capacity) {
+Java_jogamp_opengl_gl4_GL4StaticBase_newDirectByteBuffer(JNIEnv *env, jobject _unused, jlong addr, jlong capacity) {
   return (*env)->NewDirectByteBuffer(env, (void*) (intptr_t) addr, capacity);
 }
