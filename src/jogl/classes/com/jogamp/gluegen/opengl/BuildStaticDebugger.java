@@ -106,7 +106,10 @@ public class BuildStaticDebugger
     {
         //this is to emit instance fields such as begin/end pair
         //since all the mtds are static... this really ONLY works for 1 context 1 thread setups
-        out.println("private static boolean insideBeginEndPair = false;\n");
+        out.println("private static ThreadLocal<Boolean> insideBeginEndPair = new ThreadLocal<Boolean> () {" +
+                    " protected Boolean initialValue() { " +
+                    " return false; " +
+                    " }};\n");
     }
     
     private void emitAField(PrintWriter out, Field f)
@@ -207,11 +210,11 @@ public class BuildStaticDebugger
         //if method is glBegin or glEnd, switch insideBeginEndPair's bool value
         if (m.getName() == "glBegin")
         {
-            out.println("\t\tinsideBeginEndPair = true;\n");
+            out.println("\t\tinsideBeginEndPair.set(true);\n");
         }
         else if (m.getName() == "glEnd")
         {
-            out.println("\t\tinsideBeginEndPair = false;\n");
+            out.println("\t\tinsideBeginEndPair.set(false);\n");
         }
         
         //out.println("\t\t" + debugPrologue(m));
@@ -341,13 +344,14 @@ public class BuildStaticDebugger
     {
         StringBuffer res = new StringBuffer();
                 
-        res.append("boolean errorARB = isFunctionAvailable(\"glGetDebugMessageLogARB\");\n");
         
         // for debugging: lets print result of glGetError AND glDebugMessageLog
+        res.append("boolean errorARB = isFunctionAvailable(\"glGetDebugMessageLogARB\");\n");
+
         //res.append("if (!errorARB) {\n");
         
         res.append("int error = 0;\n");
-        res.append("if (!insideBeginEndPair) {\n");
+        res.append("if (!insideBeginEndPair.get()) {\n");
         
         res.append("error = " + clazz.getSimpleName() + ".glGetError();\n");
         res.append("}\n");
@@ -363,6 +367,7 @@ public class BuildStaticDebugger
         
         res.append("System.err.println(formattedEpilogue);");        
         
+
         // for debugging
         //res.append("}\n");
         //res.append("else {\n");       
