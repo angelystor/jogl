@@ -346,7 +346,8 @@ public class BuildStaticDebugger
                 
         
         // for debugging: lets print result of glGetError AND glDebugMessageLog
-        res.append("boolean errorARB = isFunctionAvailable(\"glGetDebugMessageLogARB\");\n");
+        //res.append("boolean errorARB = isFunctionAvailable(\"glGetDebugMessageLogARB\");\n");
+        res.append("boolean errorARB = false;\n");
 
         //res.append("if (!errorARB) {\n");
         
