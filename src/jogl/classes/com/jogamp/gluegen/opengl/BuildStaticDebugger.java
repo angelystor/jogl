@@ -102,6 +102,13 @@ public class BuildStaticDebugger
         }
     }
     
+    private void emitInstanceFields(PrintWriter out)
+    {
+        //this is to emit instance fields such as begin/end pair
+        //since all the mtds are static... this really ONLY works for 1 context 1 thread setups
+        out.println("private static boolean insideBeginEndPair = false;\n");
+    }
+    
     private void emitAField(PrintWriter out, Field f)
     {
         out.print("\t" + Modifier.toString(f.getModifiers()));
@@ -197,14 +204,25 @@ public class BuildStaticDebugger
     {
         out.println("\t{");
         
-        out.println("\t\t" + debugPrologue(m));
+        //if method is glBegin or glEnd, switch insideBeginEndPair's bool value
+        if (m.getName() == "glBegin")
+        {
+            out.println("\t\tinsideBeginEndPair = true;\n");
+        }
+        else if (m.getName() == "glEnd")
+        {
+            out.println("\t\tinsideBeginEndPair = false;\n");
+        }
+        
+        //out.println("\t\t" + debugPrologue(m));
+        //out.println("\t\t String prologue = " + debugPrologue(m));
         
         if (m.getGenericReturnType() == Void.TYPE)
         {
             //print out the invocation for the method
             out.println("\t\t" + getInvocation(m));
             
-            out.println("\t\t" + debugEpilogue(m));
+            out.println("\t\t" + debugEpilogue(m, debugPrologue(m)));
         }
         else
         {
@@ -213,7 +231,7 @@ public class BuildStaticDebugger
             out.print(" _res = ");
             out.println(getInvocation(m));
             
-            out.println("\t\t" + debugEpilogue(m));
+            out.println("\t\t" + debugEpilogue(m, debugPrologue(m)));
             
             out.println("\t\treturn _res;");
         }
@@ -242,7 +260,7 @@ public class BuildStaticDebugger
         
         res.append("String prologue = ");
         
-        res.append("\"INFO \" +");
+        //res.append("\"INFO \" +");
         //res.append("\"Thread: \" + " + "Thread.currentThread().getName()" + " + \"\\n\" +");
         res.append("\"" + m.getName() + "(\" ");        
         
@@ -263,7 +281,7 @@ public class BuildStaticDebugger
         res.append("+ \");\";\n");
         
         //print out the string
-        res.append("System.err.println(prologue);");
+        //res.append("System.err.println(prologue);");
         
         return res.toString();
     }
@@ -319,20 +337,31 @@ public class BuildStaticDebugger
         return res.toString();
     }
     
-    private String debugEpilogue(Method m)
+    private String debugEpilogue(Method m, String prologue)
     {
         StringBuffer res = new StringBuffer();
-        
+                
         res.append("boolean errorARB = isFunctionAvailable(\"glGetDebugMessageLogARB\");\n");
         
         // for debugging: lets print result of glGetError AND glDebugMessageLog
         //res.append("if (!errorARB) {\n");
-        res.append("int error = " + clazz.getSimpleName() + ".glGetError();\n");
         
-        res.append("String epilogue = ");       
-        res.append("(error == GL_NO_ERROR ? \"INFO\" : \"WARN\") + \" glGetError(): \" + error;\n");
+        res.append("int error = 0;\n");
+        res.append("if (!insideBeginEndPair) {\n");
         
-        res.append("System.err.println(epilogue);");        
+        res.append("error = " + clazz.getSimpleName() + ".glGetError();\n");
+        res.append("}\n");
+        
+        res.append(prologue);
+        
+        
+        
+        
+        res.append("String epilogue = (error == GL_NO_ERROR ? \"INFO\" : \"WARN\") + \" [0x%04x] \" + prologue;\n");
+        
+        res.append("String formattedEpilogue = String.format(epilogue, error);\n");
+        
+        res.append("System.err.println(formattedEpilogue);");        
         
         // for debugging
         //res.append("}\n");
@@ -386,6 +415,7 @@ public class BuildStaticDebugger
         res.append("}\n");
         res.append("}\n");
         
+        
         return res.toString();      
     }
     
@@ -427,9 +457,11 @@ public class BuildStaticDebugger
         out.println(" extends " + clazz.getName());
         out.println("{");
         
-        emitLogInitialisation(out);
+        emitLogInitialisation(out);       
         
         //emitClassFields(out);
+        
+        emitInstanceFields(out);        
         
         emitMethods(out);
         
