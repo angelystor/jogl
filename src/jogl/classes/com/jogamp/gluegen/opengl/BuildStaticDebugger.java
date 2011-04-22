@@ -415,7 +415,7 @@ public class BuildStaticDebugger
                                                                                      "lengths, lengths_offset," +
                                                                                      "messageLog, messageLog_offset);\n");
         
-        res.append("System.err.println(arberror + \" \" + bufsize);\n");
+        //res.append("System.err.println(arberror + \" \" + bufsize);\n");
         
         res.append("}\n");
         res.append("}\n");
