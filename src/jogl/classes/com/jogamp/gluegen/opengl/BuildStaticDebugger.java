@@ -25,9 +25,7 @@
  * authors and should not be interpreted as representing official policies, either expressed
  * or implied, of JogAmp Community.
  */
-/**
- * Copyright 2011 Animoto Productions
- */
+
 package com.jogamp.gluegen.opengl;
 
 import java.io.BufferedWriter;
@@ -368,6 +366,7 @@ public class BuildStaticDebugger
 		res.append("int severities_offset = 0;\n");
 		res.append("int[] lengths = new int[count];\n");
 		res.append("int lengths_offset = 0;\n");
+		//TODO NEED TO CHANGE messageLog's max length! Right now it's returning 0 for bufsize... it should be well. the max length
 		res.append("byte[] messageLog = new byte[4096];\n");
 		res.append("int messageLog_offset = 0;\n");
 		
@@ -380,8 +379,8 @@ public class BuildStaticDebugger
 																					 "severities, severities_offset," +
 																					 "lengths, lengths_offset," +
 																					 "messageLog, messageLog_offset);\n");
-		
-		res.append("System.err.println(arberror + \" \" + bufsize);\n");
+		res.append("String s = new String(messageLog);\n");
+		res.append("System.err.println(arberror + \" \" + bufsize + \" \" + s);\n");
 		
 		res.append("}\n");
 		res.append("}\n");
