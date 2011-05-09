@@ -88,6 +88,7 @@ public class BuildStaticDebugger
     {
         out.println("import " + clazz.getName() +";");
         out.println("import java.nio.IntBuffer;");
+        out.println("import java.nio.ByteBuffer;");
         out.println("import javax.media.opengl.GLContext;");
         out.println("import javax.media.opengl.GLDebugMessage;");
         //out.println("import java.util.logging.Logger;");
@@ -403,7 +404,7 @@ public class BuildStaticDebugger
         res.append("IntBuffer ids = IntBuffer.allocate(count);\n");
         res.append("IntBuffer severities = IntBuffer.allocate(count);\n");
         res.append("IntBuffer lengths = IntBuffer.allocate(bufsize);\n");
-        res.append("String messageLog = new String();\n");
+        res.append("ByteBuffer messageLog = ByteBuffer.allocate(bufsize);\n");
 
         res.append("if (count != 0) {\n");
 
