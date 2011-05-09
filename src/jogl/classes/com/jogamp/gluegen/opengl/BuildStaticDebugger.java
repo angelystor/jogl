@@ -86,7 +86,10 @@ public class BuildStaticDebugger
     
     private void emitImports(PrintWriter out)
     {
-        out.println("import " + clazz.getName() + ";");
+        out.println("import " + clazz.getName() +";");
+        out.println("import java.nio.IntBuffer;");
+        out.println("import javax.media.opengl.GLContext;");
+        out.println("import javax.media.opengl.GLDebugMessage;");
         //out.println("import java.util.logging.Logger;");
     }
 
@@ -346,8 +349,6 @@ public class BuildStaticDebugger
                 
         
         // for debugging: lets print result of glGetError AND glDebugMessageLog
-        //res.append("boolean errorARB = isFunctionAvailable(\"glGetDebugMessageLogARB\");\n");
-        res.append("boolean errorARB = false;\n");
 
         //res.append("if (!errorARB) {\n");
         
@@ -366,60 +367,72 @@ public class BuildStaticDebugger
         
         res.append("String formattedEpilogue = String.format(epilogue, error);\n");
         
-        res.append("System.err.println(formattedEpilogue);");        
+        // this switch disables/enable arb
+        //res.append("boolean errorARB = isFunctionAvailable(\"glGetDebugMessageLogARB\");\n");
+        res.append("boolean errorARB = false;\n");
         
-
+        // check that context is debug
+        res.append("boolean debugContext = GLContext.getCurrent().isGLDebugMessageEnabled();\n");
+        
         // for debugging
         //res.append("}\n");
         //res.append("else {\n");       
-        res.append("if (errorARB) {\n");
+        res.append("if (errorARB && debugContext) {\n");
         
         //int count, int bufsize, int[] sources, int sources_offset, int[] types, int types_offset, int[] ids, int ids_offset, int[] severities, int severities_offset, int[] lengths,
         //int lengths_offset, byte[] messageLog, int messageLog_offset)  {
 
-        res.append(clazz.getSimpleName() + ".glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);\n");
-        res.append(clazz.getSimpleName() + ".glDebugMessageControlARB(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, null, true);\n");
+        //res.append(clazz.getSimpleName() + ".glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);\n");
+        //res.append(clazz.getSimpleName() + ".glDebugMessageControlARB(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, null, true);\n");
         
         res.append("int[] count_buf = new int[1];\n");
         
         //get the maximum size of messages stored
         res.append(clazz.getSimpleName() + ".glGetIntegerv(GL_DEBUG_LOGGED_MESSAGES_ARB, count_buf, 0);\n");
-        //res.append("int count = count_buf[0];\n");
+        res.append("int count = count_buf[0];\n");
         
         //default to 1
-        res.append("int count = 1;\n");
+        //res.append("int count = 1;\n");
         
         //get largest message size stored
         res.append(clazz.getSimpleName() + ".glGetIntegerv(GL_MAX_DEBUG_MESSAGE_LENGTH_ARB, count_buf, 0);\n");
         res.append("int bufsize = count_buf[0];\n");        
-        
-        res.append("int[] sources = new int[count];\n");
-        res.append("int sources_offset = 0;\n");
-        res.append("int[] types = new int[count];\n");
-        res.append("int types_offset = 0;\n");
-        res.append("int[] ids = new int[count];\n");
-        res.append("int ids_offset = 0;\n");
-        res.append("int[] severities = new int[count];\n");
-        res.append("int severities_offset = 0;\n");
-        res.append("int[] lengths = new int[count];\n");
-        res.append("int lengths_offset = 0;\n");
-        res.append("byte[] messageLog = new byte[4096];\n");
-        res.append("int messageLog_offset = 0;\n");
-        
+                
+        res.append("IntBuffer sources = IntBuffer.allocate(count);\n");
+        res.append("IntBuffer types = IntBuffer.allocate(count);\n");
+        res.append("IntBuffer ids = IntBuffer.allocate(count);\n");
+        res.append("IntBuffer severities = IntBuffer.allocate(count);\n");
+        res.append("IntBuffer lengths = IntBuffer.allocate(bufsize);\n");
+        res.append("String messageLog = new String();\n");
+
         res.append("if (count != 0) {\n");
-        
+
         res.append("int arberror = " + clazz.getSimpleName() + ".glGetDebugMessageLogARB(count, bufsize," +
-                                                                                     "sources, sources_offset," +
-                                                                                     "types, types_offset," +
-                                                                                     "ids, ids_offset," +
-                                                                                     "severities, severities_offset," +
-                                                                                     "lengths, lengths_offset," +
-                                                                                     "messageLog, messageLog_offset);\n");
+                "sources," +
+                "types," +
+                "ids," +
+                "severities," +
+                "lengths," +
+                "messageLog);\n");        
         
-        //res.append("System.err.println(arberror + \" \" + bufsize);\n");
+        res.append("String src = GLDebugMessage.getDbgSourceString(sources.get(0));\n");
+        res.append("String type = GLDebugMessage.getDbgTypeString(types.get(0));\n");
+        res.append("String severity = GLDebugMessage.getDbgSeverityString(severities.get(0));\n");
+        
+        res.append("System.err.println(arberror + \" \" + bufsize + \" \" + \" \" + src + \" \" + type + \" \" + severity + \" \" + messageLog);\n");
         
         res.append("}\n");
         res.append("}\n");
+        
+        // if debug context or arb not available, just print out the result of getError
+        res.append("else\n");
+        res.append("{\n");
+        
+        res.append("System.err.println(formattedEpilogue);");
+        
+        res.append("}\n");
+
+        
         
         
         return res.toString();      

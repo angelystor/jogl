@@ -178,7 +178,8 @@
         <property name="obj.nativewindow"           value="${build.nativewindow}/obj"/>
 
         <property name="jogl.make"                  value="." />
-        <property name="jogl.build.xml"             value="${jogl.make}/build-jogl.xml" />
+    	<property name="jogl.build.xml"             value="${jogl.make}/build-jogl.xml" />
+    	<property name="jogl.debug.build.xml"       value="${jogl.make}/build-debug-jogl.xml" />
         <property name="build.jogl"                 value="${build}/jogl" />
         <property name="obj.jogl"                   value="${build.jogl}/obj"/>
 
