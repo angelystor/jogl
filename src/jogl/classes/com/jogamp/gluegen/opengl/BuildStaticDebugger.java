@@ -373,7 +373,9 @@ public class BuildStaticDebugger
         res.append("boolean errorARB = false;\n");
         
         // check that context is debug
-        res.append("boolean debugContext = GLContext.getCurrent().isGLDebugMessageEnabled();\n");
+        // disable call for now
+        // res.append("boolean debugContext = GLContext.getCurrent().isGLDebugMessageEnabled();\n");
+        res.append("boolean debugContext = false;\n");
         
         // for debugging
         //res.append("}\n");
