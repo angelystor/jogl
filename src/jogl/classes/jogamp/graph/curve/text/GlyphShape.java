@@ -67,62 +67,48 @@ public class GlyphShape {
                 pathIterator.next();
             }
         }
-        shape.transformOutlines(OutlineShape.QUADRATIC_NURBS);
+        shape.transformOutlines(OutlineShape.VerticesState.QUADRATIC_NURBS);
     }
     
     public final Vertex.Factory<? extends Vertex> vertexFactory() { return shape.vertexFactory(); }
     
-    private void addVertexToLastOutline(Vertex vertex){
-        shape.addVertex(vertex);
+    private void addVertexToLastOutline(Vertex vertex) {
+    	//FIXME: assuming font outline comes in CW order
+        shape.addVertex(0, vertex);
     }
     
     private void addOutlineVerticesFromGlyphVector(float[] coords, int segmentType){
-        if(segmentType == PathIterator.SEG_MOVETO){
-            if(!shape.getLastOutline().isEmpty()){
+        switch(segmentType) {
+            case PathIterator.SEG_MOVETO:
                 shape.addEmptyOutline();
-            }            
-            Vertex vert = vertexFactory().create(coords[0],coords[1]);
-            vert.setOnCurve(true);
-            addVertexToLastOutline(vert);
-            
-            numVertices++;
+                addVertexToLastOutline(vertexFactory().create(coords, 0, 2, true));            
+                numVertices++;
+                break;
+            case PathIterator.SEG_LINETO:
+                addVertexToLastOutline(vertexFactory().create(coords, 0, 2, true));            
+                numVertices++;
+                break;
+            case PathIterator.SEG_QUADTO:
+                addVertexToLastOutline(vertexFactory().create(coords, 0, 2, false));
+                addVertexToLastOutline(vertexFactory().create(coords, 2, 2, true));            
+                numVertices+=2;
+                break;
+            case PathIterator.SEG_CUBICTO:
+                addVertexToLastOutline(vertexFactory().create(coords, 0, 2, false));
+                addVertexToLastOutline(vertexFactory().create(coords, 2, 2, false));
+                addVertexToLastOutline(vertexFactory().create(coords, 4, 2, true));            
+                numVertices+=3;
+                break;
+            case PathIterator.SEG_CLOSE:
+                shape.closeLastOutline();
+                break;
+            default:
+                throw new IllegalArgumentException("Unhandled Segment Type: "+segmentType);
         }
-        else if(segmentType == PathIterator.SEG_LINETO){
-            Vertex vert1 = vertexFactory().create(coords[0],coords[1]);
-            vert1.setOnCurve(true);
-            addVertexToLastOutline(vert1);
-            
-            numVertices++;
-        }
-        else if(segmentType == PathIterator.SEG_QUADTO){
-            Vertex vert1 = vertexFactory().create(coords[0],coords[1]);
-            vert1.setOnCurve(false);
-            addVertexToLastOutline(vert1);
-
-            Vertex vert2 = vertexFactory().create(coords[2],coords[3]);
-            vert2.setOnCurve(true);
-            addVertexToLastOutline(vert2);
-            
-            numVertices+=2;
-        }
-        else if(segmentType == PathIterator.SEG_CUBICTO){
-            Vertex vert1 = vertexFactory().create(coords[0],coords[1]);
-            vert1.setOnCurve(false);
-            addVertexToLastOutline(vert1);
-
-            Vertex vert2 = vertexFactory().create(coords[2],coords[3]);
-            vert2.setOnCurve(false);
-            addVertexToLastOutline(vert2);
-
-            Vertex vert3 = vertexFactory().create(coords[4],coords[5]);
-            vert3.setOnCurve(true);
-            addVertexToLastOutline(vert3);
-            
-            numVertices+=3;
-        }
-        else if(segmentType == PathIterator.SEG_CLOSE){
-            shape.closeLastOutline();
-        }
+    }
+    
+    public OutlineShape getShape() {
+        return shape;
     }
     
     public int getNumVertices() {
@@ -145,11 +131,10 @@ public class GlyphShape {
     }
     
     /** Triangluate the glyph shape
-     * @param sharpness sharpness of the curved regions default = 0.5
      * @return ArrayList of triangles which define this shape
      */
-    public ArrayList<Triangle> triangulate(float sharpness){
-        return shape.triangulate(sharpness);
+    public ArrayList<Triangle> triangulate(){
+        return shape.triangulate();
     }
 
     /** Get the list of Vertices of this Object

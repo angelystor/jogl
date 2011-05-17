@@ -43,6 +43,7 @@ import javax.media.opengl.GLUniformData;
 
 import jogamp.opengl.Debug;
 
+import com.jogamp.common.os.Platform;
 import com.jogamp.common.util.IntObjectHashMap;
 import com.jogamp.opengl.util.GLArrayDataEditable;
 
@@ -147,13 +148,17 @@ public class ShaderState {
                     resetAllAttributes(gl);
                     resetAllUniforms(gl);
                 }
-            } else if(resetAllShaderData) {
-                setAllAttributes(gl);
+            } else { 
+                if(resetAllShaderData) {
+                    setAllAttributes(gl);
+                }
                 if(!shaderProgram.link(gl, System.err)) {
                     throw new GLException("could not link program: "+shaderProgram);
                 }
                 shaderProgram.useProgram(gl, true);
-                resetAllUniforms(gl);
+                if(resetAllShaderData) {
+                    resetAllUniforms(gl);
+                }
             }
             resetAllShaderData = false;            
         } else {
@@ -202,7 +207,17 @@ public class ShaderState {
                 return;
             }
             prgInUse = shaderProgram.inUse();
-            useProgram(gl, false);
+            
+            if(prgInUse) {
+                // only disable if in use
+                if(null != prog) {
+                    // new program will issue glUseProgram(..)
+                    shaderProgram.programInUse = false;
+                } else {
+                    // no new program - disable
+                    useProgram(gl, false);
+                }
+            }
             resetAllShaderData = true;
         }
 
@@ -213,9 +228,9 @@ public class ShaderState {
             // [re]set all data and use program if switching program, 
             // or  use program if program is linked
             if(shaderProgram.linked() || resetAllShaderData) {
-                useProgram(gl, true);
+                useProgram(gl, true); // may reset all data
                 if(!prgInUse) {
-                    shaderProgram.useProgram(gl, false);
+                    useProgram(gl, false);
                 }
             }
         }
@@ -698,11 +713,11 @@ public class ShaderState {
      */
     public void disableAllVertexAttributeArrays(GL2ES2 gl, boolean removeFromState) {
         for(Iterator<String> iter = enabledAttributes.iterator(); iter.hasNext(); ) {
-            String name = iter.next();
+            final String name = iter.next();
             if(removeFromState) {
                 enabledAttributes.remove(name);
             }
-            int index = getAttribLocation(gl, name);
+            final int index = getAttribLocation(gl, name);
             if(0<=index) {
                 gl.glDisableVertexAttribArray(index);
             }
@@ -711,8 +726,8 @@ public class ShaderState {
 
     private final void relocateAttribute(GL2ES2 gl, GLArrayData attribute) {
         // get new location ..
-        String name = attribute.getName();
-        int loc = getAttribLocation(gl, name);
+        final String name = attribute.getName();
+        final int loc = getAttribLocation(gl, name);
         attribute.setLocation(loc);
 
         if(0<=loc) {
@@ -936,34 +951,35 @@ public class ShaderState {
             sb = new StringBuilder();
         }
         
-        sb.append("ShaderState[");
-        sb.append(shaderProgram.toString());
-        sb.append(", enabledAttributes: [");
+        sb.append("ShaderState[ ");
+        
+        sb.append(Platform.getNewline()).append(" ");
+        if(null != shaderProgram) {
+            shaderProgram.toString(sb);
+        } else {
+            sb.append("ShaderProgram: null");
+        }
+        sb.append(Platform.getNewline()).append(" enabledAttributes [");
         for(Iterator<String> iter = enabledAttributes.iterator(); iter.hasNext(); ) {
-            sb.append("\n  ");
-            sb.append((String)iter.next());
+            sb.append(Platform.getNewline()).append("  ").append(iter.next());
         }
-        sb.append("], activeAttributes [");
+        sb.append(Platform.getNewline()).append(" ],").append(" activeAttributes [");
         for(Iterator<GLArrayData> iter = activeAttribDataMap.values().iterator(); iter.hasNext(); ) {
-            sb.append("\n  ");
-            sb.append(iter.next());
+            sb.append(Platform.getNewline()).append("  ").append(iter.next());
         }
-        sb.append("], managedAttributes [");
+        sb.append(Platform.getNewline()).append(" ],").append(" managedAttributes [");
         for(Iterator<GLArrayData> iter = managedAttributes.iterator(); iter.hasNext(); ) {
-            sb.append("\n  ");
-            sb.append(iter.next());
+            sb.append(Platform.getNewline()).append("  ").append(iter.next());
         }
-        sb.append("], activeUniforms [");
+        sb.append(Platform.getNewline()).append(" ],").append(" activeUniforms [");
         for(Iterator<GLUniformData> iter=activeUniformDataMap.values().iterator(); iter.hasNext(); ) {
-            sb.append("\n  ");
-            sb.append(iter.next());
+            sb.append(Platform.getNewline()).append("  ").append(iter.next());
         }
-        sb.append("], managedUniforms [");
+        sb.append(Platform.getNewline()).append(" ],").append(" managedUniforms [");
         for(Iterator<GLUniformData> iter = managedUniforms.iterator(); iter.hasNext(); ) {
-            sb.append("\n  ");
-            sb.append(iter.next());
+            sb.append(Platform.getNewline()).append("  ").append(iter.next());
         }
-        sb.append("]");
+        sb.append(Platform.getNewline()).append(" ]").append(Platform.getNewline()).append("]");
         return sb;
     }
     

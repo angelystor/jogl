@@ -34,7 +34,6 @@ import javax.media.opengl.GLProfile;
 
 import com.jogamp.graph.curve.Region;
 import com.jogamp.graph.curve.opengl.RenderState;
-import com.jogamp.graph.curve.opengl.Renderer;
 import com.jogamp.graph.geom.opengl.SVertex;
 import com.jogamp.newt.event.KeyAdapter;
 import com.jogamp.newt.event.KeyEvent;
@@ -53,11 +52,6 @@ public class GPURegionNewtDemo02 {
     static final boolean TRACE = false;
     
     public static void main(String[] args) {
-        GPURegionNewtDemo02 test = new GPURegionNewtDemo02();
-        test.testMe();
-    }
-    
-    public void testMe() {
         GLProfile.initSingleton(true);
         GLProfile glp = GLProfile.getGL2ES2();
         GLCapabilities caps = new GLCapabilities(glp);
@@ -67,10 +61,10 @@ public class GPURegionNewtDemo02 {
         final GLWindow window = GLWindow.create(caps);
         window.setPosition(10, 10);
         window.setSize(800, 400);
-        window.setTitle("GPU Curve Region Newt Demo 02 - r2t1 msaa0");
+        window.setTitle("GPU Curve Region Newt Demo 02 - vbaa1 msaa0");
                 
-        RenderState rs = Renderer.createRenderState(new ShaderState(), SVertex.factory());
-        GPURegionGLListener02  regionGLListener = new GPURegionGLListener02 (rs, Region.TWO_PASS, 1140, DEBUG, TRACE); 
+        RenderState rs = RenderState.createRenderState(new ShaderState(), SVertex.factory());
+        GPURegionGLListener02  regionGLListener = new GPURegionGLListener02 (rs, Region.TWO_PASS_RENDERING_BIT|Region.VARIABLE_CURVE_WEIGHT_BIT, 1140, DEBUG, TRACE); 
         regionGLListener.attachInputListenerTo(window);                
         window.addGLEventListener(regionGLListener);
              

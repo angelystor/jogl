@@ -39,6 +39,7 @@ import jogamp.graph.geom.plane.AffineTransform;
 import jogamp.graph.geom.plane.Path2D;
 
 import com.jogamp.common.util.IntObjectHashMap;
+import com.jogamp.graph.font.Font;
 import com.jogamp.graph.font.FontFactory;
 import com.jogamp.graph.geom.AABBox;
 
@@ -123,6 +124,7 @@ class TypecastFont implements FontInt {
             cmapentries += range.getEndCode() - range.getStartCode() + 1; // end included 
         }        
         if(DEBUG) {
+            System.err.println("font direction hint: "+font.getHeadTable().getFontDirectionHint());
             System.err.println("num glyphs: "+font.getNumGlyphs());
             System.err.println("num cmap entries: "+cmapentries);
             System.err.println("num cmap ranges: "+cmapFormat.getRangeCount());
@@ -139,13 +141,21 @@ class TypecastFont implements FontInt {
         }
         char2Glyph = new IntObjectHashMap(cmapentries + cmapentries/4);
     }
-
+    
+    public StringBuilder getName(StringBuilder sb, int nameIndex) {
+        return font.getName(nameIndex, sb);
+    }
     public String getName(int nameIndex) {
-        return font.getName(nameIndex);
+        return getName(null, nameIndex).toString();
     }
-    public StringBuffer getAllNames(StringBuffer buffer, String separator) {
-        return font.getAllNames(buffer, separator);
+    public StringBuilder getAllNames(StringBuilder sb, String separator) {
+        return font.getAllNames(sb, separator);
     }
+    public StringBuilder getFullFamilyName(StringBuilder sb) {
+        sb = getName(sb, Font.NAME_FAMILY).append("-");
+        getName(sb, Font.NAME_SUBFAMILY);
+        return sb;
+    }    
 
     public Metrics getMetrics() {
         if (metrics == null) {
@@ -189,9 +199,9 @@ class TypecastFont implements FontInt {
                 {
                     final HdmxTable.DeviceRecord dr = hdmx.getRecord(i); 
                     result.addAdvance(dr.getWidth(code), dr.getPixelSize());
-                    if(DEBUG) {
+                    /* if(DEBUG) {
                         System.err.println("hdmx advance : pixelsize = "+dr.getWidth(code)+" : "+ dr.getPixelSize());
-                    }
+                    } */
                 }
             }            
             char2Glyph.put(symbol, result);
@@ -199,11 +209,11 @@ class TypecastFont implements FontInt {
         return result;
     }
 
-    public void getOutline(String string, float pixelSize, AffineTransform transform, Path2D[] result) {
-        TypecastRenderer.getOutline(this, string, pixelSize, transform, result);
+    public void getPaths(CharSequence string, float pixelSize, AffineTransform transform, Path2D[] result) {
+        TypecastRenderer.getPaths(this, string, pixelSize, transform, result);
     }
 
-    public float getStringWidth(String string, float pixelSize) {
+    public float getStringWidth(CharSequence string, float pixelSize) {
         float width = 0;
         final int len = string.length();
         for (int i=0; i< len; i++)
@@ -220,7 +230,7 @@ class TypecastFont implements FontInt {
         return (int)(width + 0.5f);        
     }
 
-    public float getStringHeight(String string, float pixelSize) {
+    public float getStringHeight(CharSequence string, float pixelSize) {
         int height = 0;
 
         for (int i=0; i<string.length(); i++)
@@ -274,4 +284,7 @@ class TypecastFont implements FontInt {
         return FontFactory.isPrintableChar(c);
     }
     
+    public String toString() {
+        return getFullFamilyName(null).toString();
+    }
 }
