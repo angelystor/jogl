@@ -12,11 +12,11 @@
 
     <target name="all.debug" description="Debug build nativewindow, jogl and newt projects, incl. all junit tests " depends="init.debug,build.nativewindow,build.jogl,build.newt,test.compile,one.dir,tag.build,developer-zip-archive" />
 
+    <target name="debug.jogl" description="Build nativewindow, debu jogl and newt projects, incl. all junit tests " depends="init.debug,build.nativewindow,build.debug.jogl,build.newt,test.compile,one.dir,tag.build,developer-zip-archive" />
+
     <target name="all.but-archives" description="Build nativewindow, jogl and newt projects, incl. all junit tests " depends="init,build.nativewindow,build.jogl,build.newt,test.compile,one.dir,tag.build" />
 
     <target name="all.ide" description="Debug IDE build nativewindow, jogl and newt projects, including all junit tests, but don't tag the build or create archives" depends="init.debug,build.nativewindow,build.jogl,build.newt,test.compile,one.dir" />
-
-	<target name="debug.jogl" description="Build nativewindow, debug jogl and newt projects, incl. all junit tests " depends="init,build.nativewindow,build.debug.jogl,build.newt,test.compile,one.dir,tag.build,developer-zip-archive" />
 
 	
     <target name="test.compile">
@@ -76,10 +76,9 @@
         <ant antfile="${jogl.build.xml}" dir="${jogl.make}" target="all" inheritRefs="true" inheritAll="true"/>
     </target>
 	
-    <target name="build.debug.jogl" depends="init">
+    <target name="build.debug.jogl" depends="init.debug">
         <ant antfile="${jogl.debug.build.xml}" dir="${jogl.make}" target="all" inheritRefs="true" inheritAll="true"/>
     </target>
-	
 
     <target name="build.newt" depends="init">
         <ant antfile="${newt.build.xml}" dir="${newt.make}" target="all" inheritRefs="true" inheritAll="true"/>
