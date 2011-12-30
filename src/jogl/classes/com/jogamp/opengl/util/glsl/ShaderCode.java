@@ -29,8 +29,9 @@
 package com.jogamp.opengl.util.glsl;
 
 import com.jogamp.common.nio.Buffers;
+import com.jogamp.common.util.IOUtil;
+
 import javax.media.opengl.*;
-import com.jogamp.opengl.util.*;
 import jogamp.opengl.Debug;
 
 import java.util.*;
@@ -87,7 +88,7 @@ public class ShaderCode {
         id = getNextID();
     }
 
-    public static ShaderCode create(GL2ES2 gl, int type, int number, Class context, String[] sourceFiles) {
+    public static ShaderCode create(GL2ES2 gl, int type, int number, Class<?> context, String[] sourceFiles) {
         if(!ShaderUtil.isShaderCompilerAvailable(gl)) return null;
 
         String[][] shaderSources = null;
@@ -106,7 +107,7 @@ public class ShaderCode {
         return new ShaderCode(type, number, shaderSources);
     }
 
-    public static ShaderCode create(int type, int number, Class context, int binFormat, String binaryFile) {
+    public static ShaderCode create(int type, int number, Class<?> context, int binFormat, String binaryFile) {
         ByteBuffer shaderBinary = null;
         if(null!=binaryFile && 0<=binFormat) {
             shaderBinary = readShaderBinary(context, binaryFile);
@@ -140,7 +141,7 @@ public class ShaderCode {
         }
     }
 
-    public static ShaderCode create(GL2ES2 gl, int type, int number, Class context, 
+    public static ShaderCode create(GL2ES2 gl, int type, int number, Class<?> context, 
                                     String srcRoot, String binRoot, String basename) {
         ShaderCode res = null;
         String srcFileName = null;
@@ -282,7 +283,7 @@ public class ShaderCode {
         }
     }
 
-    private static int readShaderSource(Class context, URL url, StringBuffer result, int lineno) {
+    private static int readShaderSource(Class<?> context, URL url, StringBuffer result, int lineno) {
         try {
             if(DEBUG_CODE) {
                 System.err.printf("%3d: // %s\n", lineno, url);
@@ -299,13 +300,13 @@ public class ShaderCode {
                     URL nextURL = null;
                     
                     // Try relative path first
-                    String next = Locator.getRelativeOf(url, includeFile);
+                    String next = IOUtil.getRelativeOf(url, includeFile);
                     if(null != next) {
-                        nextURL = Locator.getResource(context, next);        
+                        nextURL = IOUtil.getResource(context, next);        
                     }
                     if (nextURL == null) {
                         // Try absolute path
-                        nextURL = Locator.getResource(context, includeFile);        
+                        nextURL = IOUtil.getResource(context, includeFile);        
                     }
                     if (nextURL == null) {
                         // Fail
@@ -322,7 +323,7 @@ public class ShaderCode {
         return lineno;
     }
     
-    public static void readShaderSource(Class context, URL url, StringBuffer result) {
+    public static void readShaderSource(Class<?> context, URL url, StringBuffer result) {
         if(DEBUG_CODE) {
             System.err.println();
             System.err.println("// -----------------------------------------------------------");
@@ -334,8 +335,8 @@ public class ShaderCode {
         }
     }
 
-    public static String readShaderSource(Class context, String path) {
-        URL url = Locator.getResource(context, path);        
+    public static String readShaderSource(Class<?> context, String path) {
+        URL url = IOUtil.getResource(context, path);        
         if (url == null) {
             return null;
         }
@@ -344,13 +345,13 @@ public class ShaderCode {
         return result.toString();
     }
 
-    public static ByteBuffer readShaderBinary(Class context, String path) {
+    public static ByteBuffer readShaderBinary(Class<?> context, String path) {
         try {
-            URL url = Locator.getResource(context, path);
+            URL url = IOUtil.getResource(context, path);
             if (url == null) {
                 return null;
             }
-            return StreamUtil.readAll2Buffer(new BufferedInputStream(url.openStream()));
+            return IOUtil.copyStream2ByteBuffer( new BufferedInputStream( url.openStream() ) );
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

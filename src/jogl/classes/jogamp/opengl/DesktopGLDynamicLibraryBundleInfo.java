@@ -32,27 +32,25 @@ import java.util.List;
 import java.util.ArrayList;
 
 public abstract class DesktopGLDynamicLibraryBundleInfo extends GLDynamicLibraryBundleInfo {
-    private static int posGlueLibGLDESKTOP;
-    private static List/*<String>*/ glueLibNames;
+    private static List<String> glueLibNames;
     static {
-        glueLibNames = new ArrayList();
+        glueLibNames = new ArrayList<String>();
 
         glueLibNames.addAll(getGlueLibNamesPreload());
-
-        posGlueLibGLDESKTOP = glueLibNames.size();
         glueLibNames.add("jogl_desktop");
-    }
-
-    public static final int getGlueLibPosGLDESKTOP() { 
-        return posGlueLibGLDESKTOP; 
     }
 
     public DesktopGLDynamicLibraryBundleInfo() {
         super();
     }
 
-    public final List/*<String>*/ getGlueLibNames() {
+    public final List<String> getGlueLibNames() {
         return glueLibNames;
     }
+    
+    public boolean useToolGetProcAdressFirst(String funcName) {
+        return true;
+    }
+    
 }
 

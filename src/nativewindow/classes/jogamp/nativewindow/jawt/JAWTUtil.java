@@ -37,24 +37,28 @@
 
 package jogamp.nativewindow.jawt;
 
-import jogamp.nativewindow.*;
 import java.awt.EventQueue;
-
-import javax.media.nativewindow.*;
-
-
 import java.awt.GraphicsEnvironment;
 import java.awt.Toolkit;
-import java.lang.reflect.*;
-import java.security.*;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.util.ArrayList;
 import java.util.Map;
+
+import javax.media.nativewindow.NativeWindowException;
+
+import jogamp.nativewindow.Debug;
+
+import com.jogamp.common.os.Platform;
 
 public class JAWTUtil {
   protected static final boolean DEBUG = Debug.debug("JAWT");
 
   // See whether we're running in headless mode
   private static final boolean headlessMode;
+  private static final JAWT jawtLockObject;
 
   // Java2D magic ..
   private static final Method isQueueFlusherThread;
@@ -75,31 +79,67 @@ public class JAWTUtil {
     boolean ok;
   }
   
+  /**
+   * Returns true if this platform's JAWT implementation supports 
+   * or uses offscreen layer.
+   */
+  public static boolean isOffscreenLayerSupported() {
+       return Platform.OS_TYPE == Platform.OSType.MACOS &&
+              Platform.OS_VERSION_NUMBER.compareTo(JAWT.JAWT_MacOSXCALayerMinVersion) >= 0;      
+  }
+ 
+  /**
+   * @param useOffscreenLayerIfAvailable
+   * @return
+   */
+  public static JAWT getJAWT(boolean useOffscreenLayerIfAvailable) {
+    int jawt_version_flags = JAWTFactory.JAWT_VERSION_1_4;
+    if(useOffscreenLayerIfAvailable) {
+        switch(Platform.OS_TYPE) {
+            case MACOS:
+                if(Platform.OS_VERSION_NUMBER.compareTo(JAWT.JAWT_MacOSXCALayerMinVersion) >= 0) {
+                    jawt_version_flags |= JAWT.JAWT_MACOSX_USE_CALAYER;
+                }
+        }
+    }
+    return JAWT.getJAWT(jawt_version_flags);
+  }
+  
+  public static boolean isJAWTUsingOffscreenLayer(JAWT jawt) {
+      return 0 != ( jawt.getCachedVersion() & JAWT.JAWT_MACOSX_USE_CALAYER );
+  }
+  
   static {
-    JAWTJNILibLoader.loadAWTImpl();
+    if(DEBUG) {
+        System.err.println("JAWTUtil initialization (JAWT/JNI/...");
+        // Thread.dumpStack();
+    }
+    JAWTJNILibLoader.initSingleton();
     JAWTJNILibLoader.loadNativeWindow("awt");
 
     headlessMode = GraphicsEnvironment.isHeadless();
-
     boolean ok = false;
-    Class jC = null;
+    Class<?> jC = null;
     Method m = null;
     if (!headlessMode) {
+        jawtLockObject = getJAWT(false); // don't care for offscreen layer here
         try {
             jC = Class.forName("jogamp.opengl.awt.Java2D");
             m = jC.getMethod("isQueueFlusherThread", (Class[])null);
             ok = true;
         } catch (Exception e) {
         }
+    } else {
+        jawtLockObject = null; // headless !
     }
     isQueueFlusherThread = m;
     j2dExist = ok;
 
-    PrivilegedDataBlob1 pdb1 = (PrivilegedDataBlob1) AccessController.doPrivileged(new PrivilegedAction() {        
+    PrivilegedDataBlob1 pdb1 = (PrivilegedDataBlob1) AccessController.doPrivileged(new PrivilegedAction<Object>() {        
         public Object run() {
             PrivilegedDataBlob1 d = new PrivilegedDataBlob1();
             try {                
-                final Class sunToolkitClass = Class.forName("sun.awt.SunToolkit");
+                final Class<?> sunToolkitClass = Class.forName("sun.awt.SunToolkit");
                 d.sunToolkitAWTLockMethod = sunToolkitClass.getDeclaredMethod("awtLock", new Class[]{});
                 d.sunToolkitAWTLockMethod.setAccessible(true);
                 d.sunToolkitAWTUnlockMethod = sunToolkitClass.getDeclaredMethod("awtUnlock", new Class[]{});
@@ -129,21 +169,21 @@ public class JAWTUtil {
     jawtToolkitLock = new JAWTToolkitLock();
 
     // trigger native AWT toolkit / properties initialization
-    Map desktophints = null;
+    Map<?,?> desktophints = null;
     try {
         if(EventQueue.isDispatchThread()) {
-            desktophints = (Map)(Toolkit.getDefaultToolkit().getDesktopProperty("awt.font.desktophints"));
+            desktophints = (Map<?,?>)(Toolkit.getDefaultToolkit().getDesktopProperty("awt.font.desktophints"));
         } else {
-            final ArrayList desktophintsBucket = new ArrayList(1);
+            final ArrayList<Map<?,?>> desktophintsBucket = new ArrayList<Map<?,?>>(1);
             EventQueue.invokeAndWait(new Runnable() {
                 public void run() {
-                    Map _desktophints = (Map)(Toolkit.getDefaultToolkit().getDesktopProperty("awt.font.desktophints"));
+                    Map<?,?> _desktophints = (Map<?,?>)(Toolkit.getDefaultToolkit().getDesktopProperty("awt.font.desktophints"));
                     if(null!=_desktophints) {
                         desktophintsBucket.add(_desktophints);
                     }
                 }
             });
-            desktophints = ( desktophintsBucket.size() > 0 ) ? (Map)desktophintsBucket.get(0) : null ;
+            desktophints = ( desktophintsBucket.size() > 0 ) ? desktophintsBucket.get(0) : null ;
         }
     } catch (InterruptedException ex) {
         ex.printStackTrace();
@@ -189,7 +229,7 @@ public class JAWTUtil {
    * JAWT's native Lock() function calls SunToolkit.awtLock(),
    * which just uses AWT's global ReentrantLock.<br>
    */
-  public static void awtLock() {
+  private static void awtLock() {
     if(hasSunToolkitAWTLock) {
         try {
             sunToolkitAWTLockMethod.invoke(null, (Object[])null);
@@ -197,7 +237,7 @@ public class JAWTUtil {
           throw new NativeWindowException("SunToolkit.awtLock failed", e);
         }
     } else {
-        JAWT.getJAWT().Lock();
+        jawtLockObject.Lock();
     }
   }
 
@@ -207,7 +247,7 @@ public class JAWTUtil {
    * JAWT's native Unlock() function calls SunToolkit.awtUnlock(),
    * which just uses AWT's global ReentrantLock.<br>
    */
-  public static void awtUnlock() {
+  private static void awtUnlock() {
     if(hasSunToolkitAWTLock) {
         try {
             sunToolkitAWTUnlockMethod.invoke(null, (Object[])null);
@@ -215,7 +255,7 @@ public class JAWTUtil {
           throw new NativeWindowException("SunToolkit.awtUnlock failed", e);
         }
     } else {
-        JAWT.getJAWT().Unlock();
+        jawtLockObject.Unlock();
     }
   }
 

@@ -35,21 +35,21 @@ import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
+import com.jogamp.newt.Display;
 import com.jogamp.newt.NewtFactory;
 import com.jogamp.newt.Screen;
-import com.jogamp.newt.Window;
 import com.jogamp.newt.ScreenMode;
 import com.jogamp.newt.util.MonitorMode;
 import com.jogamp.newt.util.ScreenModeUtil;
 import com.jogamp.opengl.test.junit.util.UITestCase;
 import java.util.Iterator;
 import java.util.List;
-import javax.media.nativewindow.Capabilities;
 import javax.media.nativewindow.util.Dimension;
-import javax.media.nativewindow.util.DimensionReadOnly;
+import javax.media.nativewindow.util.DimensionImmutable;
 import javax.media.nativewindow.util.SurfaceSize;
 
 public class TestScreenMode00NEWT extends UITestCase {
+    static int screenIdx = 0;
     static int width, height;
     
     static int waitTimeShort = 4; //1 sec
@@ -66,9 +66,9 @@ public class TestScreenMode00NEWT extends UITestCase {
 
     @Test
     public void testScreenModeInfo00() throws InterruptedException {
-        DimensionReadOnly res = new Dimension(640, 480);
+        DimensionImmutable res = new Dimension(640, 480);
         SurfaceSize surfsz = new SurfaceSize(res, 32);
-        DimensionReadOnly mm = new Dimension(500, 400);
+        DimensionImmutable mm = new Dimension(500, 400);
         MonitorMode mon = new MonitorMode(surfsz, mm, 60);
         ScreenMode sm_out = new ScreenMode(mon, 90);
         System.err.println("00 out: "+sm_out);
@@ -95,40 +95,47 @@ public class TestScreenMode00NEWT extends UITestCase {
 
     @Test
     public void testScreenModeInfo01() throws InterruptedException {
-        Capabilities caps = new Capabilities();
-        Window window = NewtFactory.createWindow(caps);
-        window.setSize(width, height);
-        window.setVisible(true);
+        Display dpy = NewtFactory.createDisplay(null);
+        Screen screen = NewtFactory.createScreen(dpy, screenIdx);
+        screen.addReference();
+        Assert.assertEquals(true,screen.isNativeValid());
+        Assert.assertEquals(true,screen.getDisplay().isNativeValid());
+        System.err.println("Screen: "+screen.toString());
 
-        Screen screen = window.getScreen();
-
-        List screenModes = screen.getScreenModes();
-        if(null != screenModes) {
-            Assert.assertTrue(screenModes.size()>0);
-            int i=0;
-            for(Iterator iter=screenModes.iterator(); iter.hasNext(); i++) {
-                System.err.println(i+": "+iter.next());
-            }
-            ScreenMode sm_o = screen.getOriginalScreenMode();
-            Assert.assertNotNull(sm_o);            
-            ScreenMode sm_c = screen.getOriginalScreenMode();
-            Assert.assertNotNull(sm_c);
-            System.err.println("orig: "+sm_o);
-            System.err.println("curr: "+sm_c);
-        } else {
-            // no support ..
-            System.err.println("Your platform has no ScreenMode change support, sorry");
+        List<ScreenMode> screenModes = screen.getScreenModes();
+        Assert.assertTrue(screenModes.size()>0);
+        int i=0;
+        for(Iterator<ScreenMode> iter=screenModes.iterator(); iter.hasNext(); i++) {
+            System.err.println(i+": "+iter.next());
         }
+        ScreenMode sm_o = screen.getOriginalScreenMode();
+        Assert.assertNotNull(sm_o);            
+        ScreenMode sm_c = screen.getCurrentScreenMode();
+        Assert.assertNotNull(sm_c);
+        System.err.println("orig SM: "+sm_o);
+        System.err.println("curr SM: "+sm_c);
+        System.err.println("curr sz: "+screen.getWidth()+"x"+screen.getHeight());
+        Assert.assertEquals(sm_o, sm_c);
 
-        window.destroy();
+        screen.removeReference();
 
-        Assert.assertEquals(false,window.isVisible());
-        Assert.assertEquals(false,window.isNativeValid());
         Assert.assertEquals(false,screen.isNativeValid());
         Assert.assertEquals(false,screen.getDisplay().isNativeValid());
     }
 
+    static int atoi(String a) {
+        try {
+            return Integer.parseInt(a);
+        } catch (Exception ex) { throw new RuntimeException(ex); }
+    }
+    
     public static void main(String args[]) throws IOException {
+        for(int i=0; i<args.length; i++) {
+            if(args[i].equals("-screen")) {
+                i++;
+                screenIdx = atoi(args[i]);
+            }
+        }
         String tstname = TestScreenMode00NEWT.class.getName();
         org.junit.runner.JUnitCore.main(tstname);
     }

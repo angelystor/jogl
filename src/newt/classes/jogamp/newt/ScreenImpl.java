@@ -34,6 +34,21 @@
 
 package jogamp.newt;
 
+import java.security.AccessControlContext;
+import java.security.AccessController;
+import java.security.PrivilegedAction;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
+import javax.media.nativewindow.AbstractGraphicsScreen;
+import javax.media.nativewindow.NativeWindowException;
+import javax.media.nativewindow.NativeWindowFactory;
+import javax.media.nativewindow.util.Dimension;
+import javax.media.nativewindow.util.DimensionImmutable;
+import javax.media.nativewindow.util.Point;
+import javax.media.nativewindow.util.SurfaceSize;
+
 import com.jogamp.common.util.ArrayHashSet;
 import com.jogamp.common.util.IntIntHashMap;
 import com.jogamp.newt.Display;
@@ -41,13 +56,8 @@ import com.jogamp.newt.NewtFactory;
 import com.jogamp.newt.Screen;
 import com.jogamp.newt.ScreenMode;
 import com.jogamp.newt.event.ScreenModeListener;
+import com.jogamp.newt.util.MonitorMode;
 import com.jogamp.newt.util.ScreenModeUtil;
-
-import javax.media.nativewindow.*;
-
-import java.security.*;
-import java.util.ArrayList;
-import java.util.List;
 
 public abstract class ScreenImpl extends Screen implements ScreenModeListener {
     protected static final boolean DEBUG_TEST_SCREENMODE_DISABLED = Debug.isPropertyDefined("newt.test.Screen.disableScreenMode", true);
@@ -58,60 +68,77 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
     protected int hashCode;
     protected AbstractGraphicsScreen aScreen;
     protected int refCount; // number of Screen references by Window
-    protected int width=-1, height=-1; // detected values: set using setScreenSize
-    protected static int usrWidth=-1, usrHeight=-1; // property values: newt.ws.swidth and newt.ws.sheight
+    protected Point vOrigin = new Point(0, 0); // virtual top-left origin
+    protected Dimension vSize = new Dimension(0, 0); // virtual rotated screen size
+    protected static Dimension usrSize = null; // property values: newt.ws.swidth and newt.ws.sheight
+    protected static volatile boolean usrSizeQueried = false;
     private static AccessControlContext localACC = AccessController.getContext();
-    private List/*<ScreenModeListener>*/ referencedScreenModeListener = new ArrayList();
+    private ArrayList<ScreenModeListener> referencedScreenModeListener = new ArrayList<ScreenModeListener>();
     long t0; // creationTime
 
-    private static Class getScreenClass(String type) 
-    throws ClassNotFoundException 
+    static {
+        AccessController.doPrivileged(new PrivilegedAction<Object>() {
+            public Object run() {
+                registerShutdownHook();
+                return null;
+            }
+        });
+    }
+    
+    @SuppressWarnings("unchecked")
+    private static Class<? extends Screen> getScreenClass(String type) throws ClassNotFoundException 
     {
-        Class screenClass = NewtFactory.getCustomClass(type, "Screen");
+        Class<?> screenClass = NewtFactory.getCustomClass(type, "Screen");
         if(null==screenClass) {
-            if (NativeWindowFactory.TYPE_EGL.equals(type)) {
-                screenClass = Class.forName("jogamp.newt.opengl.kd.KDScreen");
+            if (NativeWindowFactory.TYPE_ANDROID.equals(type)) {
+                screenClass = Class.forName("jogamp.newt.driver.android.AndroidScreen");
+            } else if (NativeWindowFactory.TYPE_EGL.equals(type)) {
+                screenClass = Class.forName("jogamp.newt.driver.kd.KDScreen");
             } else if (NativeWindowFactory.TYPE_WINDOWS.equals(type)) {
-                screenClass = Class.forName("jogamp.newt.windows.WindowsScreen");
+                screenClass = Class.forName("jogamp.newt.driver.windows.WindowsScreen");
             } else if (NativeWindowFactory.TYPE_MACOSX.equals(type)) {
-                screenClass = Class.forName("jogamp.newt.macosx.MacScreen");
+                screenClass = Class.forName("jogamp.newt.driver.macosx.MacScreen");
             } else if (NativeWindowFactory.TYPE_X11.equals(type)) {
-                screenClass = Class.forName("jogamp.newt.x11.X11Screen");
+                screenClass = Class.forName("jogamp.newt.driver.x11.X11Screen");
             } else if (NativeWindowFactory.TYPE_AWT.equals(type)) {
-                screenClass = Class.forName("jogamp.newt.awt.AWTScreen");
+                screenClass = Class.forName("jogamp.newt.driver.awt.AWTScreen");
             } else {
                 throw new RuntimeException("Unknown window type \"" + type + "\"");
             }
         }
-        return screenClass;
+        return (Class<? extends Screen>)screenClass;
     }
 
-    public static Screen create(Display display, final int idx) {
+    public static Screen create(Display display, int idx) {
         try {
-            if(usrWidth<0 || usrHeight<0) {
+            if(!usrSizeQueried) {
                 synchronized (Screen.class) {
-                    if(usrWidth<0 || usrHeight<0) {
-                        usrWidth  = Debug.getIntProperty("newt.ws.swidth", true, localACC);
-                        usrHeight = Debug.getIntProperty("newt.ws.sheight", true, localACC);
-                        if(usrWidth>0 || usrHeight>0) {
-                            System.err.println("User screen size "+usrWidth+"x"+usrHeight);
+                    if(!usrSizeQueried) {
+                        usrSizeQueried = true;
+                        final int w = Debug.getIntProperty("newt.ws.swidth", true, localACC);
+                        final int h = Debug.getIntProperty("newt.ws.sheight", true, localACC);                        
+                        if(w>0 && h>0) {
+                            usrSize = new Dimension(w, h);
+                            System.err.println("User screen size "+usrSize);
                         }
                     }
                 }
             }
             synchronized(screenList) {
+                Class<? extends Screen> screenClass = getScreenClass(display.getType());
+                ScreenImpl screen  = (ScreenImpl) screenClass.newInstance();
+                screen.display = (DisplayImpl) display;
+                idx = screen.validateScreenIndex(idx);
                 {
                     Screen screen0 = ScreenImpl.getLastScreenOf(display, idx, -1);
                     if(null != screen0) {
                         if(DEBUG) {
                             System.err.println("Screen.create() REUSE: "+screen0+" "+Display.getThreadName());
                         }
+                        screen = null;
                         return screen0;
                     }
                 }
-                Class screenClass = getScreenClass(display.getType());
-                ScreenImpl screen  = (ScreenImpl) screenClass.newInstance();
-                screen.display = (DisplayImpl) display;
                 screen.screen_idx = idx;
                 screen.fqname = (display.getFQName()+idx).intern();
                 screen.hashCode = screen.fqname.hashCode();
@@ -161,6 +188,8 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
             if(null == aScreen) {
                 throw new NativeWindowException("Screen.createNative() failed to instanciate an AbstractGraphicsScreen");
             }
+            initScreenModeStatus();
+            updateVirtualScreenOriginAndSize();            
             if(DEBUG) {
                 System.err.println("Screen.createNative() END ("+DisplayImpl.getThreadName()+", "+this+")");
             }
@@ -168,7 +197,8 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
                 screensActive++;
             }
         }
-        initScreenModeStatus();
+        ScreenModeStatus sms = ScreenModeStatus.getScreenModeStatus(this.getFQName());
+        sms.addListener(this);
     }
 
     public synchronized final void destroy() {
@@ -192,6 +222,7 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
     public synchronized final int addReference() throws NativeWindowException {
         if(DEBUG) {
             System.err.println("Screen.addReference() ("+DisplayImpl.getThreadName()+"): "+refCount+" -> "+(refCount+1));
+            // Thread.dumpStack();
         }
         if ( 0 == refCount ) {
             createNative();
@@ -204,10 +235,8 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
 
     public synchronized final int removeReference() {
         if(DEBUG) {
-            String msg = "Screen.removeReference() ("+DisplayImpl.getThreadName()+"): "+refCount+" -> "+(refCount-1);
-            // Throwable t = new Throwable(msg);
-            // t.printStackTrace();
-            System.err.println(msg);
+            System.err.println("Screen.removeReference() ("+DisplayImpl.getThreadName()+"): "+refCount+" -> "+(refCount-1));
+            // Thread.dumpStack();
         }
         refCount--; // could become < 0, in case of manual destruction without actual creation/addReference
         if(0>=refCount) {
@@ -223,14 +252,37 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
 
     protected abstract void createNativeImpl();
     protected abstract void closeNativeImpl();
-
+    
+    /**
+     * Returns the validated screen index, which is either the passed <code>idx</code>
+     * value or <code>0</code>.
+     * <p>
+     * On big-desktops this shall return always 0.
+     * </p>
+     */
+    protected abstract int validateScreenIndex(int idx);
+    
+    /**
+     * Stores the virtual origin and virtual <b>rotated</b> screen size.
+     * <p>
+     * This method is called after the ScreenMode has been set, 
+     * hence you may utilize it.
+     * </p> 
+     * @param virtualOrigin the store for the virtual origin
+     * @param virtualSize the store for the virtual rotated size
+     */
+    protected abstract void getVirtualScreenOriginAndSize(Point virtualOrigin, Dimension virtualSize); 
+    
     public final String getFQName() {
         return fqname;
     }
 
-    protected void setScreenSize(int w, int h) {
-        System.err.println("Detected screen size "+w+"x"+h);
-        width=w; height=h;
+    /**
+     * Updates the <b>rotated</b> virtual ScreenSize using the native impl.
+     */
+    protected void updateVirtualScreenOriginAndSize() {
+        getVirtualScreenOriginAndSize(vOrigin, vSize);
+        System.err.println("Detected screen origin "+vOrigin+", size "+vSize);
     }
 
     public final Display getDisplay() {
@@ -245,16 +297,19 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
         return aScreen;
     }
 
-    public final boolean isNativeValid() {
+    public synchronized final boolean isNativeValid() {
         return null != aScreen;
     }
 
+    public int getX() { return vOrigin.getX(); }
+    public int getY() { return vOrigin.getY(); }
+    
     public final int getWidth() {
-        return (usrWidth>0) ? usrWidth : (width>0) ? width : 480;
+        return (null != usrSize) ? usrSize.getWidth() : vSize.getWidth();
     }
 
     public final int getHeight() {
-        return (usrHeight>0) ? usrHeight : (height>0) ? height : 480;
+        return (null != usrSize) ? usrSize.getHeight() : vSize.getHeight();
     }
 
     @Override
@@ -262,8 +317,8 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
         return "NEWT-Screen["+getFQName()+", idx "+screen_idx+", refCount "+refCount+", "+getWidth()+"x"+getHeight()+", "+aScreen+", "+display+"]";
     }
 
-    public final List/*<ScreenMode>*/ getScreenModes() {
-        ArrayHashSet screenModes = getScreenModesOrig();
+    public final List<ScreenMode> getScreenModes() {
+        ArrayHashSet<ScreenMode> screenModes = getScreenModesOrig();
         if(null != screenModes && 0 < screenModes.size()) {
             return screenModes.toArrayList();
         }
@@ -278,67 +333,74 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
     public ScreenMode getCurrentScreenMode() {
         ScreenMode smU = null;
         ScreenModeStatus sms = ScreenModeStatus.getScreenModeStatus(this.getFQName());
-        if(null != sms) {
-            ScreenMode sm0 = ( DEBUG_TEST_SCREENMODE_DISABLED ) ? null : getCurrentScreenModeImpl();
-            if(null == sm0) {
-                return null;
-            }
-            sms.lock();
-            try {
-                smU = (ScreenMode) sms.getScreenModes().get(sm0); // unify via value hash
-                if(null == smU) {
-                    throw new RuntimeException(sm0+" could not be hashed from ScreenMode list");
-                }
+        if(null == sms) {
+            throw new InternalError("ScreenModeStatus.getScreenModeStatus("+this.getFQName()+") == null");            
+        }
+        ScreenMode sm0 = getCurrentScreenModeIntern();
+        if(null == sm0) {
+            throw new InternalError("getCurrentScreenModeImpl() == null");
+        }
+        sms.lock();
+        try {
+            smU = sms.getScreenModes().getOrAdd(sm0); // unified instance, maybe new
 
-                // if mode has changed somehow, update it ..
-                if( sms.getCurrentScreenMode().hashCode() != smU.hashCode() ) {
-                    sms.fireScreenModeChanged(smU, true);
-                }
-            } finally {
-                sms.unlock();
+            // if mode has changed somehow, update it ..
+            if( sms.getCurrentScreenMode().hashCode() != smU.hashCode() ) {
+                sms.fireScreenModeChanged(smU, true);
             }
+        } finally {
+            sms.unlock();
         }
         return smU;
     }
 
     public boolean setCurrentScreenMode(ScreenMode screenMode) {
-        ScreenMode smU = (ScreenMode) getScreenModesOrig().get(screenMode); // unify via value hash
-        ScreenModeStatus sms = ScreenModeStatus.getScreenModeStatus(this.getFQName());
-        if(null!=sms) {
-            sms.lock();
-            try {
-                if(DEBUG) {
-                    System.err.println("Screen.setCurrentScreenMode ("+(System.currentTimeMillis()-t0)+"): 0.0 "+screenMode);
-                }
-
-                sms.fireScreenModeChangeNotify(smU);
-
-                if(DEBUG) {
-                    System.err.println("Screen.setCurrentScreenMode ("+(System.currentTimeMillis()-t0)+"): 0.1 "+screenMode);
-                }
-
-                boolean success = setCurrentScreenModeImpl(smU);
-                if(success) {
-                    setScreenSize(screenMode.getMonitorMode().getSurfaceSize().getResolution().getWidth(),
-                                  screenMode.getMonitorMode().getSurfaceSize().getResolution().getHeight());
-                }
-
-                if(DEBUG) {
-                    System.err.println("Screen.setCurrentScreenMode ("+(System.currentTimeMillis()-t0)+"): X.0 "+screenMode+", success: "+success);
-                }
-
-                sms.fireScreenModeChanged(smU, success);
-
-                if(DEBUG) {
-                    System.err.println("Screen.setCurrentScreenMode ("+(System.currentTimeMillis()-t0)+"): X.X "+screenMode+", success: "+success);
-                }
-
-                return success;
-            } finally {
-                sms.unlock();
-            }
+        final ScreenMode smC = getCurrentScreenMode();
+        ScreenMode smU = getScreenModesOrig().get(screenMode); // unify via value hash
+        if(smU.equals(smC)) {
+            if(DEBUG) {
+                System.err.println("Screen.setCurrentScreenMode ("+(System.currentTimeMillis()-t0)+"): 0.0 is-current (skip) "+smU+" == "+smC);
+            }            
+            return true;
         }
-        return false;
+        ScreenModeStatus sms = ScreenModeStatus.getScreenModeStatus(this.getFQName());
+        if(null == sms) {
+            throw new InternalError("ScreenModeStatus.getScreenModeStatus("+this.getFQName()+") == null");            
+        }
+        boolean success;
+        sms.lock();
+        try {
+            long t0=0, t1=0;
+            if(DEBUG) {
+                System.err.println("Screen.setCurrentScreenMode ("+(System.currentTimeMillis()-t0)+"): 0.0 "+smU);
+                t0 = System.currentTimeMillis();
+            }                
+
+            sms.fireScreenModeChangeNotify(smU);
+
+            if(DEBUG) {
+                System.err.println("Screen.setCurrentScreenMode ("+(System.currentTimeMillis()-t0)+"): 0.1 "+smU);
+                t1 = System.currentTimeMillis();
+            }
+
+            success = setCurrentScreenModeImpl(smU);                    
+            
+            if(DEBUG) {
+                t1 = System.currentTimeMillis() - t1;
+                System.err.println("Screen.setCurrentScreenMode ("+(System.currentTimeMillis()-t0)+"): X.0 "+smU+", success: "+success);
+            }
+
+            sms.fireScreenModeChanged(smU, success);
+                            
+            if(DEBUG) {
+                t0 = System.currentTimeMillis() - t0;
+                System.err.println("Screen.setCurrentScreenMode ("+(System.currentTimeMillis()-t0)+"): X.X "+smU+", success: "+success+
+                                   " - dt0 "+t0+"ms, dt1 "+t1+"ms");
+            }
+        } finally {
+            sms.unlock();
+        }
+        return success;
     }
 
     public void screenModeChangeNotify(ScreenMode sm) {
@@ -348,6 +410,9 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
     }
 
     public void screenModeChanged(ScreenMode sm, boolean success) {
+        if(success) {
+            updateVirtualScreenOriginAndSize();
+        }
         for(int i=0; i<referencedScreenModeListener.size(); i++) {
             ((ScreenModeListener)referencedScreenModeListener.get(i)).screenModeChanged(sm, success);
         }
@@ -362,7 +427,7 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
     }
 
     /** ScreenModeStatus bridge to native implementation */
-    protected final ArrayHashSet getScreenModesOrig() {
+    protected final ArrayHashSet<ScreenMode> getScreenModesOrig() {
         ScreenModeStatus sms = ScreenModeStatus.getScreenModeStatus(this.getFQName());
         if(null!=sms) {
             return sms.getScreenModes();
@@ -414,6 +479,29 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
     protected ScreenMode getCurrentScreenModeImpl() {
         return null;
     }
+    
+    /**
+     * Utilizes {@link #getCurrentScreenModeImpl()}, if the latter returns null it uses
+     * the current screen size and dummy values.
+     */
+    protected ScreenMode getCurrentScreenModeIntern() {
+        ScreenMode res = getCurrentScreenModeImpl();
+        if(null == res) {
+            int[] props = new int[ScreenModeUtil.NUM_SCREEN_MODE_PROPERTIES_ALL];
+            int i = 0;
+            props[i++] = 0; // set later for verification of iterator
+            props[i++] = getWidth();  // width
+            props[i++] = getHeight(); // height
+            props[i++] = 32;   // bpp
+            props[i++] = 519;  // widthmm
+            props[i++] = 324;  // heightmm
+            props[i++] = 60;   // rate
+            props[i++] = 0;    // rot
+            props[i - ScreenModeUtil.NUM_SCREEN_MODE_PROPERTIES_ALL] = i; // count
+            res = ScreenModeUtil.streamIn(props, 0);
+        }
+        return res;
+    }
 
     /**
      * To be implemented by the native specification.<br>
@@ -423,43 +511,48 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
         return false;
     }
 
-    private void initScreenModeStatus() {
+    private ScreenModeStatus initScreenModeStatus() {
         ScreenModeStatus sms;
         ScreenModeStatus.lockScreenModeStatus();
         try {
             sms = ScreenModeStatus.getScreenModeStatus(this.getFQName());
             if(null==sms) {                
                 IntIntHashMap screenModesIdx2NativeIdx = new IntIntHashMap();
+                final ScreenMode currentSM = getCurrentScreenModeIntern();
+                if(null == currentSM) {
+                    throw new InternalError("getCurrentScreenModeImpl() == null");
+                }
 
-                ArrayHashSet screenModes = collectNativeScreenModes(screenModesIdx2NativeIdx);
-                sms = new ScreenModeStatus(screenModes, screenModesIdx2NativeIdx);
-                if(null!=screenModes && screenModes.size()>0) {
-                    ScreenMode originalScreenMode = ( DEBUG_TEST_SCREENMODE_DISABLED ) ? null : getCurrentScreenModeImpl();
-                    if(null != originalScreenMode) {
-                        ScreenMode originalScreenMode0 = (ScreenMode) screenModes.get(originalScreenMode); // unify via value hash
-                        if(null == originalScreenMode0) {
-                            throw new RuntimeException(originalScreenMode+" could not be hashed from ScreenMode list");
-                        }
-                        sms.setOriginalScreenMode(originalScreenMode0);
+                ArrayHashSet<ScreenMode> screenModes = collectNativeScreenModes(screenModesIdx2NativeIdx);
+                screenModes.getOrAdd(currentSM);
+                if(DEBUG) {
+                    int i=0;
+                    for(Iterator<ScreenMode> iter=screenModes.iterator(); iter.hasNext(); i++) {
+                        System.err.println(i+": "+iter.next());
                     }
                 }
+                
+                sms = new ScreenModeStatus(screenModes, screenModesIdx2NativeIdx);
+                ScreenMode originalScreenMode0 = screenModes.get(currentSM); // unify via value hash
+                if(null == originalScreenMode0) {
+                    throw new RuntimeException(currentSM+" could not be hashed from ScreenMode list");
+                }
+                sms.setOriginalScreenMode(originalScreenMode0);
                 ScreenModeStatus.mapScreenModeStatus(this.getFQName(), sms);
             }
-            sms.addListener(this);
         } finally {
             ScreenModeStatus.unlockScreenModeStatus();
         }
+        return sms;
     }
 
     /** ignores bpp < 15 */
-    private ArrayHashSet collectNativeScreenModes(IntIntHashMap screenModesIdx2NativeId) {
-        ArrayHashSet resolutionPool  = new ArrayHashSet();
-        ArrayHashSet surfaceSizePool = new ArrayHashSet();
-        ArrayHashSet screenSizeMMPool = new ArrayHashSet();
-        ArrayHashSet monitorModePool = new ArrayHashSet();
-        ArrayHashSet screenModePool = null;
-
-        screenModePool = new ArrayHashSet();
+    private ArrayHashSet<ScreenMode> collectNativeScreenModes(IntIntHashMap screenModesIdx2NativeId) {
+        ArrayHashSet<DimensionImmutable> resolutionPool   = new ArrayHashSet<DimensionImmutable>();
+        ArrayHashSet<SurfaceSize>        surfaceSizePool  = new ArrayHashSet<SurfaceSize>();
+        ArrayHashSet<DimensionImmutable> screenSizeMMPool = new ArrayHashSet<DimensionImmutable>();
+        ArrayHashSet<MonitorMode>        monitorModePool  = new ArrayHashSet<MonitorMode>();
+        ArrayHashSet<ScreenMode>         screenModePool   = new ArrayHashSet<ScreenMode>();
 
         int[] smProps = null;
         int num = 0;
@@ -480,9 +573,18 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
                 int nativeId = smProps[0];
                 int screenModeIdx = ScreenModeUtil.streamIn(resolutionPool, surfaceSizePool, screenSizeMMPool,
                                                             monitorModePool, screenModePool, smProps, 1);
+                if(DEBUG) {
+                    System.err.println("ScreenImpl.collectNativeScreenModes: #"+num+": idx: "+nativeId+" native -> "+screenModeIdx+" newt");
+                }
+                
                 if(screenModeIdx >= 0) {
                     screenModesIdx2NativeId.put(screenModeIdx, nativeId);
                 }
+            } else if(DEBUG) {
+                System.err.println("ScreenImpl.collectNativeScreenModes: #"+num+": smProps: "+(null!=smProps)+
+                                   ", len: "+(null != smProps ? smProps.length : 0)+
+                                   ", bpp: "+(null != smProps && 0 < smProps.length ? smProps[idxBpp] : 0)+
+                                   " - DROPPING");
             }
             num++;
         } while ( null != smProps && 0 < smProps.length );
@@ -502,15 +604,21 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
         ScreenModeStatus sms;
         ScreenModeStatus.lockScreenModeStatus();
         try {
-            sms = ScreenModeStatus.getScreenModeStatus(this.getFQName());
+            sms = ScreenModeStatus.getScreenModeStatus(getFQName());
             if(null != sms) {
                 sms.lock();
                 try {
                     if(0 == sms.removeListener(this)) {
-                        if(!sms.isOriginalMode()) {
-                            setCurrentScreenMode(sms.getOriginalScreenMode());
+                        if(sms.isOriginalModeChangedByOwner()) {
+                            System.err.println("Screen.destroy(): "+sms.getCurrentScreenMode()+" -> "+sms.getOriginalScreenMode());
+                            try {
+                                setCurrentScreenMode(sms.getOriginalScreenMode());
+                            } catch (Throwable t) {
+                                // be verbose but continue
+                                t.printStackTrace();
+                            }
                         }
-                        ScreenModeStatus.unmapScreenModeStatus(this.getFQName());
+                        ScreenModeStatus.unmapScreenModeStatus(getFQName());
                     }
                 } finally {
                     sms.unlock();
@@ -519,6 +627,40 @@ public abstract class ScreenImpl extends Screen implements ScreenModeListener {
         } finally {
             ScreenModeStatus.unlockScreenModeStatus();
         }
+    }
+    
+    private final void shutdown() {
+        ScreenModeStatus sms = ScreenModeStatus.getScreenModeStatusUnlocked(getFQName());
+        if(null != sms) {
+            if(sms.isOriginalModeChangedByOwner()) {
+                try {
+                    System.err.println("Screen.shutdown(): "+sms.getCurrentScreenMode()+" -> "+sms.getOriginalScreenMode());
+                    setCurrentScreenModeImpl(sms.getOriginalScreenMode());
+                } catch (Throwable t) {
+                    // be quiet .. shutdown
+                }
+            }
+            ScreenModeStatus.unmapScreenModeStatusUnlocked(getFQName());
+        }            
+    }
+    private static final void shutdownAll() {
+        for(int i=0; i < screenList.size(); i++) {
+            ((ScreenImpl)screenList.get(i)).shutdown();
+        }
+    }
+    
+    private static synchronized void registerShutdownHook() {
+        final Thread shutdownHook = new Thread(new Runnable() {
+            public void run() {
+                ScreenImpl.shutdownAll();
+            }
+        });
+        AccessController.doPrivileged(new PrivilegedAction<Object>() {
+            public Object run() {
+                Runtime.getRuntime().addShutdownHook(shutdownHook);
+                return null;
+            }
+        });
     }
 }
 

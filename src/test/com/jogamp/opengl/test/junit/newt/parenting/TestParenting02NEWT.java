@@ -29,20 +29,11 @@
 
 package com.jogamp.opengl.test.junit.newt.parenting;
 
-import java.lang.reflect.*;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Test;
 
 import javax.media.opengl.*;
-import javax.media.nativewindow.*;
 import javax.media.nativewindow.*;
 
 import com.jogamp.newt.*;
@@ -52,8 +43,10 @@ import com.jogamp.newt.opengl.*;
 import java.io.IOException;
 
 import com.jogamp.opengl.test.junit.util.*;
-import com.jogamp.opengl.test.junit.jogl.demos.es1.RedSquare;
-import com.jogamp.opengl.test.junit.jogl.demos.gl2.gears.Gears;
+import com.jogamp.opengl.test.junit.jogl.demos.es2.RedSquareES2;
+import com.jogamp.opengl.test.junit.jogl.demos.es2.GearsES2;
+// import com.jogamp.opengl.test.junit.jogl.demos.es1.RedSquareES1;
+// import com.jogamp.opengl.test.junit.jogl.demos.es1.GearsES1;
 
 public class TestParenting02NEWT extends UITestCase {
     static int width, height;
@@ -61,7 +54,6 @@ public class TestParenting02NEWT extends UITestCase {
 
     @BeforeClass
     public static void initClass() {
-        GLProfile.initSingleton(true);
         width  = 640;
         height = 480;
     }
@@ -122,12 +114,12 @@ public class TestParenting02NEWT extends UITestCase {
         glWindow1.addKeyListener(new TraceKeyAdapter(new KeyAction(eventFifo)));
         glWindow1.addWindowListener(new TraceWindowAdapter());
 
-        GLEventListener demo1 = new RedSquare();
+        GLEventListener demo1 = new RedSquareES2();
         setDemoFields(demo1, window1, glWindow1, false);
         // glWindow1.addGLEventListener(demo1);
 
         glWindow1.setVisible(true);
-        CapabilitiesImmutable capsChosen = glWindow1.getGraphicsConfiguration().getNativeGraphicsConfiguration().getChosenCapabilities();
+        CapabilitiesImmutable capsChosen = glWindow1.getGraphicsConfiguration().getChosenCapabilities();
         Assert.assertNotNull(capsChosen);
         Assert.assertTrue(capsChosen.isOnscreen()==true);
 
@@ -144,12 +136,12 @@ public class TestParenting02NEWT extends UITestCase {
         glWindow2.addWindowListener(new TraceWindowAdapter(new WindowAction(eventFifo)));
         // glWindow2.addMouseListener(new TraceMouseAdapter());
 
-        GLEventListener demo2 = new Gears();
+        GLEventListener demo2 = new GearsES2();
         setDemoFields(demo2, window2, glWindow2, false);
         // glWindow2.addGLEventListener(demo2);
 
         glWindow2.setVisible(true);
-        capsChosen = glWindow2.getGraphicsConfiguration().getNativeGraphicsConfiguration().getChosenCapabilities();
+        capsChosen = glWindow2.getGraphicsConfiguration().getChosenCapabilities();
         Assert.assertNotNull(capsChosen);
         Assert.assertTrue(capsChosen.isOnscreen()==true);
 
@@ -164,12 +156,12 @@ public class TestParenting02NEWT extends UITestCase {
         while (duration>0 && !shouldQuit) {
             glWindow1.display();
             glWindow2.display();
-            Thread.sleep(step);
             duration -= step;
             x += 1;
             y += 1;
-            glWindow1.setPosition(x,y);
+            // glWindow1.setPosition(x,y);
             glWindow2.setPosition(glWindow1.getWidth()/2,glWindow1.getHeight()/2-y);
+            Thread.sleep(step);
 
             while( null != ( event = (NEWTEvent) eventFifo.get() ) ) {
                 Window source = (Window) event.getSource();

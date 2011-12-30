@@ -27,6 +27,7 @@
  */
 package com.jogamp.opengl.test.junit.graph.demos;
 
+import java.io.File;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -48,6 +49,7 @@ import com.jogamp.graph.curve.opengl.Renderer;
 import com.jogamp.newt.event.KeyEvent;
 import com.jogamp.newt.event.KeyListener;
 import com.jogamp.newt.opengl.GLWindow;
+import com.jogamp.opengl.util.GLReadBufferUtil;
 
 /**
  *
@@ -60,7 +62,7 @@ import com.jogamp.newt.opengl.GLWindow;
  * - s: screenshot
  */
 public abstract class GPURendererListenerBase01 implements GLEventListener {
-    private Screenshot screenshot;
+    private GLReadBufferUtil screenshot;
     private Renderer renderer;
     private int renderModes;
     private boolean debug;
@@ -88,7 +90,7 @@ public abstract class GPURendererListenerBase01 implements GLEventListener {
         this.renderModes = renderModes;
         this.debug = debug;
         this.trace = trace;
-        this.screenshot = new Screenshot();
+        this.screenshot = new GLReadBufferUtil(false, false);
     }
     
     public final Renderer getRenderer() { return renderer; }
@@ -178,11 +180,10 @@ public abstract class GPURendererListenerBase01 implements GLEventListener {
         }
     }
     
-    public void detachFrom(GLWindow window) {
+    public void detachInputListenerFrom(GLWindow window) {
         if ( null == keyAction ) {
             return;
         }
-        window.removeGLEventListener(this);
         window.removeKeyListener(keyAction);
     }
     
@@ -191,8 +192,9 @@ public abstract class GPURendererListenerBase01 implements GLEventListener {
         PrintWriter pw = new PrintWriter(sw);
         pw.printf("-%03dx%03d-Z%04d-T%04d-%s", drawable.getWidth(), drawable.getHeight(), (int)Math.abs(zoom), texSize, objName);
         
-        String filename = dir + tech + sw +".tga";
-        screenshot.surface2File(drawable, filename /*, exportAlpha */);
+        final String filename = dir + tech + sw +".tga";
+        screenshot.readPixels(drawable.getGL(), drawable, false);
+        screenshot.write(new File(filename));
     }
     
     int screenshot_num = 0;
@@ -251,7 +253,7 @@ public abstract class GPURendererListenerBase01 implements GLEventListener {
             else if(arg0.getKeyCode() == KeyEvent.VK_V) {
                 if(null != autoDrawable) {
                     autoDrawable.invoke(false, new GLRunnable() {
-                        public void run(GLAutoDrawable drawable) {
+                        public boolean run(GLAutoDrawable drawable) {
                             GL gl = drawable.getGL();
                             int i = gl.getSwapInterval();      
                             i = i==0 ? 1 : 0;
@@ -264,6 +266,7 @@ public abstract class GPURendererListenerBase01 implements GLEventListener {
                                 ((FPSCounter)drawable).resetFPSCounter();
                             }
                             System.err.println("Swap Interval: "+i);
+                            return true;
                         }
                     });
                 }                
@@ -272,16 +275,17 @@ public abstract class GPURendererListenerBase01 implements GLEventListener {
                 rotate(-1);
                     if(null != autoDrawable) {
                         autoDrawable.invoke(false, new GLRunnable() {
-                            public void run(GLAutoDrawable drawable) {
+                            public boolean run(GLAutoDrawable drawable) {
                                 try {
-                                    final String type = Region.usesTwoPassRendering(renderModes) ? "r2t0-msaa1" : "r2t1-msaa0" + ( Region.usesVariableCurveWeight(renderModes) ? "-vc" : "-uc" ) ; 
+                                    final String type = Region.isVBAA(renderModes) ? "vbaa0-msaa1" : "vbaa1-msaa0" + ( Region.isNonUniformWeight(renderModes) ? "-vc" : "-uc" ) ; 
                                     printScreen(drawable, "./", "demo-"+type, "snap"+screenshot_num, false);
                                     screenshot_num++;
                                 } catch (GLException e) {
                                     e.printStackTrace();
                                 } catch (IOException e) {
                                     e.printStackTrace();
-                                }                                
+                                }     
+                                return true;
                             }
                         });
                     }                

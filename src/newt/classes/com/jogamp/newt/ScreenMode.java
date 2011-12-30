@@ -28,6 +28,8 @@
 
 package com.jogamp.newt;
 
+import javax.media.nativewindow.util.DimensionImmutable;
+
 import com.jogamp.newt.util.MonitorMode;
 
 /** Immutable ScreenMode Class, consisting of it's read only components:<br>
@@ -99,7 +101,7 @@ import com.jogamp.newt.util.MonitorMode;
  * </pre>
  *
  */
-public class ScreenMode implements Cloneable {
+public class ScreenMode {
     /** zero rotation, compared to normal settings */
     public static final int ROTATE_0   = 0;
 
@@ -132,14 +134,6 @@ public class ScreenMode implements Cloneable {
         this.rotation = rotation;
     }
 
-    public Object clone() {
-        try {
-            return super.clone();
-        } catch (CloneNotSupportedException ex) {
-            throw new InternalError();
-        }
-    }
-
     /** Returns the unrotated <code>MonitorMode</code> */
     public final MonitorMode getMonitorMode() {
         return monitorMode;
@@ -148,6 +142,22 @@ public class ScreenMode implements Cloneable {
     /** Returns the CCW rotation of this mode */
     public final int getRotation() {
         return rotation;
+    }
+    
+    /** Returns the rotated screen width, 
+     *  derived from <code>getMonitorMode().getSurfaceSize().getResolution()</code>
+     *  and <code>getRotation()</code> 
+     */
+    public final int getRotatedWidth() {
+        return getRotatedWH(true);
+    }
+    
+    /** Returns the rotated screen height, 
+     *  derived from <code>getMonitorMode().getSurfaceSize().getResolution()</code>
+     *  and <code>getRotation()</code> 
+     */
+    public final int getRotatedHeight() {
+        return getRotatedWH(false);
     }
 
     public final String toString() {
@@ -186,4 +196,13 @@ public class ScreenMode implements Cloneable {
         hash = ((hash << 5) - hash) + getRotation();
         return hash;
     }
+    
+    private final int getRotatedWH(boolean width) {
+        final DimensionImmutable d = getMonitorMode().getSurfaceSize().getResolution();
+        final boolean swap = ScreenMode.ROTATE_90 == rotation || ScreenMode.ROTATE_270 == rotation ;
+        if ( (  width &&  swap ) || ( !width && !swap ) ) {
+            return d.getHeight();
+        }
+        return d.getWidth();
+    }        
 }

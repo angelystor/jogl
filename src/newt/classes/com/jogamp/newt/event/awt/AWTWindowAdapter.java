@@ -28,6 +28,8 @@
  
 package com.jogamp.newt.event.awt;
 
+import jogamp.newt.awt.event.AWTNewtEventFactory;
+
 public class AWTWindowAdapter 
     extends AWTAdapter 
     implements java.awt.event.ComponentListener, java.awt.event.WindowListener, java.awt.event.FocusListener
@@ -105,6 +107,9 @@ public class AWTWindowAdapter
 
     public void componentResized(java.awt.event.ComponentEvent e) {
         com.jogamp.newt.event.WindowEvent event = AWTNewtEventFactory.createWindowEvent(e, newtWindow);
+        if(DEBUG_IMPLEMENTATION) {
+            System.err.println("AWT: componentResized: "+event);
+        }
         if(null!=newtListener) {
             ((com.jogamp.newt.event.WindowListener)newtListener).windowResized(event);
         } else {
@@ -114,6 +119,9 @@ public class AWTWindowAdapter
 
     public void componentMoved(java.awt.event.ComponentEvent e) {
         com.jogamp.newt.event.WindowEvent event = AWTNewtEventFactory.createWindowEvent(e, newtWindow);
+        if(DEBUG_IMPLEMENTATION) {
+            System.err.println("AWT: componentMoved: "+event);
+        }
         if(null!=newtListener) {
             ((com.jogamp.newt.event.WindowListener)newtListener).windowMoved(event);
         } else {

@@ -29,7 +29,7 @@
  
 package javax.media.nativewindow.util;
 
-public class Dimension implements Cloneable, DimensionReadOnly {
+public class Dimension implements Cloneable, DimensionImmutable {
     int width;
     int height;
 
@@ -45,6 +45,10 @@ public class Dimension implements Cloneable, DimensionReadOnly {
         this.height=height;
     }
 
+    public Object cloneMutable() {
+      return clone();
+    }
+  
     public Object clone() {
         try {
             return super.clone();

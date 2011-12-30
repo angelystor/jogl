@@ -40,26 +40,35 @@
 
 package jogamp.opengl.macosx.cgl;
 
-import javax.media.opengl.*;
-import jogamp.opengl.*;
+import javax.media.nativewindow.AbstractGraphicsScreen;
+import javax.media.nativewindow.DefaultGraphicsScreen;
+import javax.media.nativewindow.NativeSurface;
+import javax.media.nativewindow.NativeWindowFactory;
+import javax.media.opengl.GLCapabilitiesImmutable;
+import javax.media.opengl.GLContext;
+import javax.media.opengl.GLDrawableFactory;
+import javax.media.opengl.GLException;
 
-import javax.media.nativewindow.*;
 import jogamp.nativewindow.WrappedSurface;
+import jogamp.opengl.GLContextImpl;
+import jogamp.opengl.GLContextShareSet;
+import jogamp.opengl.macosx.cgl.MacOSXCGLDrawable.GLBackendType;
+
 
 public class MacOSXExternalCGLContext extends MacOSXCGLContext {
   private GLContext lastContext;
 
   private MacOSXExternalCGLContext(Drawable drawable, boolean isNSContext, long handle) {
     super(drawable, null);
-    drawable.setExternalCGLContext(this);
-    this.isNSContext = isNSContext;
+    setOpenGLMode(isNSContext ? GLBackendType.NSOPENGL : GLBackendType.CGL );
+    drawable.registerContext(this);
     this.contextHandle = handle;
     GLContextShareSet.contextCreated(this);
     setGLFunctionAvailability(false, 0, 0, CTX_PROFILE_COMPAT|CTX_OPTION_ANY);
     getGLStateTracker().setEnabled(false); // external context usage can't track state in Java
   }
 
-  protected static MacOSXExternalCGLContext create(GLDrawableFactory factory, GLProfile glp) {
+  protected static MacOSXExternalCGLContext create(GLDrawableFactory factory) {
     long pixelFormat = 0;
     long currentDrawable = 0;
     long contextHandle = CGL.getCurrentContext(); // Check: MacOSX 10.3 ..
@@ -92,7 +101,7 @@ public class MacOSXExternalCGLContext extends MacOSXCGLContext {
     if (0 == pixelFormat) {
       throw new GLException("Error: current pixelformat of current Context 0x"+Long.toHexString(contextHandle)+" is null");
     }
-    GLCapabilitiesImmutable caps = MacOSXCGLGraphicsConfiguration.CGLPixelFormat2GLCapabilities(glp, pixelFormat);
+    GLCapabilitiesImmutable caps = MacOSXCGLGraphicsConfiguration.CGLPixelFormat2GLCapabilities(pixelFormat);
     if(DEBUG) {
         System.err.println("MacOSXExternalCGLContext Create "+caps);
     }
@@ -109,7 +118,7 @@ public class MacOSXExternalCGLContext extends MacOSXCGLContext {
     return new MacOSXExternalCGLContext(new Drawable(factory, ns), isNSContext, contextHandle);
   }
 
-  protected boolean createImpl() throws GLException {
+  protected boolean createImpl(GLContextImpl shareWith) throws GLException {
       return true;
   }
 
@@ -130,7 +139,7 @@ public class MacOSXExternalCGLContext extends MacOSXCGLContext {
     lastContext = null;
   }
 
-  protected void makeCurrentImpl(boolean newCreated) throws GLException {
+  protected void makeCurrentImpl() throws GLException {
   }
 
   protected void releaseImpl() throws GLException {
@@ -139,25 +148,10 @@ public class MacOSXExternalCGLContext extends MacOSXCGLContext {
   protected void destroyImpl() throws GLException {
   }
 
-  public void setOpenGLMode(int mode) {
-    if (mode != MacOSXCGLDrawable.CGL_MODE)
-      throw new GLException("OpenGL mode switching not supported for external GLContexts");
-  }
-    
-  public int  getOpenGLMode() {
-    return MacOSXCGLDrawable.CGL_MODE;
-  }
-
   // Need to provide the display connection to extension querying APIs
   static class Drawable extends MacOSXCGLDrawable {
-    MacOSXExternalCGLContext extCtx;
-
     Drawable(GLDrawableFactory factory, NativeSurface comp) {
       super(factory, comp, true);
-    }
-
-    void setExternalCGLContext(MacOSXExternalCGLContext externalContext) {
-      extCtx = externalContext;
     }
 
     public GLContext createContext(GLContext shareWith) {
@@ -174,21 +168,6 @@ public class MacOSXExternalCGLContext extends MacOSXCGLContext {
 
     public void setSize(int width, int height) {
       throw new GLException("Should not call this");
-    }
-
-    protected void swapBuffersImpl() {
-      if (extCtx != null) {
-        extCtx.swapBuffers();
-      }
-    }
-  
-    public void setOpenGLMode(int mode) {
-        if (mode != CGL_MODE)
-          throw new GLException("OpenGL mode switching not supported for external GLContext's drawables");
-    }
-
-    public int  getOpenGLMode() {
-        return CGL_MODE;
     }
   }
 }

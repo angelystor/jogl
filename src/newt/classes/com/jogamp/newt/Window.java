@@ -30,14 +30,14 @@ package com.jogamp.newt;
 
 import com.jogamp.newt.event.WindowListener;
 import com.jogamp.newt.event.KeyListener;
+import com.jogamp.newt.event.KeyEvent;
+import com.jogamp.newt.event.InputEvent;
 import com.jogamp.newt.event.MouseListener;
 import jogamp.newt.Debug;
 import javax.media.nativewindow.CapabilitiesChooser;
 import javax.media.nativewindow.CapabilitiesImmutable;
 import javax.media.nativewindow.NativeWindow;
-import javax.media.nativewindow.SurfaceUpdatedListener;
 import javax.media.nativewindow.WindowClosingProtocol;
-import javax.media.nativewindow.util.Insets;
 
 /**
  * Specifying the public Window functionality for the
@@ -46,7 +46,6 @@ import javax.media.nativewindow.util.Insets;
 public interface Window extends NativeWindow, WindowClosingProtocol {
     public static final boolean DEBUG_MOUSE_EVENT = Debug.debug("Window.MouseEvent");
     public static final boolean DEBUG_KEY_EVENT = Debug.debug("Window.KeyEvent");
-    public static final boolean DEBUG_WINDOW_EVENT = Debug.debug("Window.WindowEvent");
     public static final boolean DEBUG_IMPLEMENTATION = Debug.debug("Window");
 
     /** A 1s timeout while waiting for a native action response, ie {@link #setVisible(boolean)}. */
@@ -57,17 +56,8 @@ public interface Window extends NativeWindow, WindowClosingProtocol {
     //
 
     /**
-     * @return True if native window is valid, can be created or recovered.
-     * Otherwise false, ie this window is unrecoverable due to a <code>destroy(true)</code> call.
-     *
-     * @see #destroy(boolean)
-     * @see #setVisible(boolean)
-     */
-    boolean isValid();
-
-    /**
      * @return true if the native window handle is valid and ready to operate, ie
-     * if the native window has been created, otherwise false.
+     * if the native window has been created via {@link #setVisible(boolean) setVisible(true)}, otherwise false.
      *
      * @see #setVisible(boolean)
      * @see #destroy(boolean)
@@ -104,6 +94,7 @@ public interface Window extends NativeWindow, WindowClosingProtocol {
     /**
      * Destroy the Window and it's children, incl. native destruction.<br>
      * The Window can be recreate via {@link #setVisible(boolean) setVisible(true)}.
+     * <p>Visibility is set to false.</p>
      * <p>
      * This method invokes {@link Screen#removeReference()} after it's own destruction,<br>
      * which will issue {@link Screen#destroy()} if the reference count becomes 0.<br>
@@ -124,13 +115,13 @@ public interface Window extends NativeWindow, WindowClosingProtocol {
      * Zero size semantics are respected, see {@link #setSize(int,int)}:<br>
      * <pre>
      * if ( 0 == windowHandle && visible ) {
-     * this.visible = visible;
-     * if( 0<width*height ) {
-     * createNative();
-     * }
+     *   this.visible = visible;
+     *   if( 0 &lt; width*height ) {
+     *     createNative();
+     *   }
      * } else if ( this.visible != visible ) {
-     * this.visible = visible;
-     * setNativeSizeImpl();
+     *   this.visible = visible;
+     *   setNativeSizeImpl();
      * }
      * </pre></p>
      * <p>
@@ -143,53 +134,141 @@ public interface Window extends NativeWindow, WindowClosingProtocol {
 
     boolean isVisible();
 
+    /** 
+     * If the implementation uses delegation, return the delegated {@link Window} instance, 
+     * otherwise return <code>this</code> instance. */
+    Window getDelegatedWindow();
+    
     //
     // Child Window Management
     // 
 
-    void addChild(NativeWindow win);
+    boolean addChild(NativeWindow win);
 
-    void removeChild(NativeWindow win);
+    boolean removeChild(NativeWindow win);
 
     //
     // Modes / States
     //
 
     /**
-     * Sets the size of the client area of the window, excluding decorations
-     * Total size of the window will be
-     * {@code width+insets.left+insets.right, height+insets.top+insets.bottom}<br>
+     * Sets the size of the window's client area, excluding decorations.
+     * 
      * <p>
      * Zero size semantics are respected, see {@link #setVisible(boolean)}:<br>
      * <pre>
-     * if ( 0 != windowHandle && 0>=width*height && visible ) {
-     * setVisible(false);
-     * } else if ( 0 == windowHandle && 0<width*height && visible ) {
-     * setVisible(true);
+     * if ( 0 != windowHandle && 0 &ge; width*height && visible ) {
+     *   setVisible(false);
+     * } else if ( 0 == windowHandle && 0 &lt; width*height && visible ) {
+     *   setVisible(true);
      * } else {
-     * // as expected ..
+     *   // as expected ..
      * }
      * </pre></p>
      * <p>
      * This call is ignored if in fullscreen mode.<br></p>
      *
-     * @param width of the client area of the window
-     * @param height of the client area of the window
+     * @param width of the window's client area
+     * @param height of the window's client area
+     * 
+     * @see #getInsets()
      */
     void setSize(int width, int height);
 
     /**
-     * Returns the width of the client area of this window
-     * @return width of the client area
+     * Sets the size of the top-level window including insets (window decorations).
+     * 
+     * <p>
+     * Note: Insets (if supported) are available only after the window is set visible and hence has been created.
+     * </p>
+     *
+     * @param width of the top-level window area
+     * @param height of the top-level window area
+     * 
+     * @see #setSize(int, int)
+     * @see #getInsets()
      */
-    int getWidth();
-
+    void setTopLevelSize(int width, int height);
+    
     /**
-     * Returns the height of the client area of this window
-     * @return height of the client area
+     * Sets the location of the window's client area, excluding insets (window decorations).<br>
+     * 
+     * This call is ignored if in fullscreen mode.<br>
+     *
+     * @param x coord of the client-area's top left corner
+     * @param y coord of the client-area's top left corner
+     * 
+     * @see #getInsets()
      */
-    int getHeight();
+    void setPosition(int x, int y);
+    
+    /**
+     * Sets the location of the top-level window inclusive insets (window decorations).<br>
+     * 
+     * <p>
+     * Note: Insets (if supported) are available only after the window is set visible and hence has been created.
+     * </p>
+     * 
+     * This call is ignored if in fullscreen mode.<br>
+     *
+     * @param x coord of the top-level left corner
+     * @param y coord of the top-level left corner
+     * 
+     * @see #setPosition(int, int)
+     * @see #getInsets()
+     */
+    void setTopLevelPosition(int x, int y);
 
+    void setUndecorated(boolean value);
+    
+    boolean isUndecorated();
+    
+    void setAlwaysOnTop(boolean value);
+    
+    boolean isAlwaysOnTop();
+    
+    void setTitle(String title);
+
+    String getTitle();
+
+    boolean isPointerVisible();
+    
+    /**
+     * Makes the pointer visible or invisible.
+     * 
+     * @param pointerVisible defaults to <code>true</code> for platforms w/ visible pointer,
+     *                       otherwise defaults to <code>true</code>, eg. Android.
+     * @see #confinePointer(boolean)
+     */
+    void setPointerVisible(boolean pointerVisible);
+
+    boolean isPointerConfined();
+    
+    /**
+     * Confine the pointer to this window, ie. pointer jail.
+     * <p>
+     * Before jailing the mouse pointer, 
+     * the window request the focus and the pointer is centered in the window.
+     * </p>
+     * <p>
+     * In combination w/ {@link #warpPointer(int, int)} 
+     * and maybe {@link #setPointerVisible(boolean)} a simple mouse
+     * navigation can be realized.</p>
+     *  
+     * @param confine defaults to <code>false</code>.
+     */
+    void confinePointer(boolean confine);
+    
+    /**
+     * Moves the pointer to x/y relative to this window's origin.
+     * 
+     * @param x relative pointer x position within this window
+     * @param y relative pointer y position within this window
+     * 
+     * @see #confinePointer(boolean)
+     */
+    void warpPointer(int x, int y);
+    
     /** Defining ids for the reparenting strategy */
     public interface ReparentAction {
         /** No native reparenting valid */
@@ -228,38 +307,6 @@ public interface Window extends NativeWindow, WindowClosingProtocol {
     
     boolean isFullscreen();
 
-    /**
-     * Sets the location of the top left corner of the window, including
-     * decorations (so the client area will be placed at
-     * {@code x+insets.left,y+insets.top}.<br>
-     *
-     * This call is ignored if in fullscreen mode.<br>
-     *
-     * @param x coord of the top left corner
-     * @param y coord of the top left corner
-     */
-    void setPosition(int x, int y);
-
-    int getX();
-
-    int getY();
-
-    /**
-     * Returns the insets for this native window (the difference between the
-     * size of the toplevel window with the decorations and the client area).
-     *
-     * @return insets for this platform window
-     */
-    Insets getInsets();
-
-    void setUndecorated(boolean value);
-    
-    boolean isUndecorated();
-    
-    void setTitle(String title);
-
-    String getTitle();
-
     static interface FocusRunnable {
         /**
          * @return false if NEWT shall proceed requesting the focus,
@@ -269,53 +316,51 @@ public interface Window extends NativeWindow, WindowClosingProtocol {
     }
 
     /**
-     * May set to a {@link FocusRunnable}, {@link FocusRunnable#run()} before Newt requests the native focus.
+     * Sets a {@link FocusRunnable}, 
+     * which {@link FocusRunnable#run()} method is executed before the native focus is requested.
+     * <p>
      * This allows notifying a covered window toolkit like AWT that the focus is requested,
      * hence focus traversal can be made transparent.
+     * </p>
      */
     void setFocusAction(FocusRunnable focusAction);
+    
+    /**
+     * Sets a {@link KeyListener} allowing focus traversal with a covered window toolkit like AWT.
+     * <p>
+     * The {@link KeyListener} methods are invoked prior to all other {@link KeyListener}'s
+     * allowing to suppress the {@link KeyEvent} via the {@link InputEvent#consumedTag}.
+     * </p>
+     * @param l
+     */
+    void setKeyboardFocusHandler(KeyListener l);
 
+    /** 
+     * Request focus for this native window
+     * <p>
+     * The request is handled on this Window EDT and blocked until finished.
+     * </p>
+     * 
+     * @see #requestFocus(boolean)
+     */
     void requestFocus();
 
-    boolean hasFocus();
-
+    /** 
+     * Request focus for this native window
+     * <p>
+     * The request is handled on this Window EDT. 
+     * </p>
+     * 
+     * @param wait true if waiting until the request is executed, otherwise false
+     * @see #requestFocus()
+     */
+    void requestFocus(boolean wait);
+    
     void windowRepaint(int x, int y, int width, int height);
 
     void enqueueEvent(boolean wait, com.jogamp.newt.event.NEWTEvent event);
 
     void runOnEDTIfAvail(boolean wait, final Runnable task);
-
-
-    //
-    // SurfaceUpdateListener
-    //
-
-    /**
-     * Appends the given {@link com.jogamp.newt.event.SurfaceUpdatedListener} to the end of
-     * the list.
-     */
-    void addSurfaceUpdatedListener(SurfaceUpdatedListener l);
-
-    /**
-     *
-     * Inserts the given {@link com.jogamp.newt.event.SurfaceUpdatedListener} at the
-     * specified position in the list.<br>
-     *
-     * @param index Position where the listener will be inserted.
-     * Should be within (0 <= index && index <= size()).
-     * An index value of -1 is interpreted as the end of the list, size().
-     * @param l The listener object to be inserted
-     * @throws IndexOutOfBoundsException If the index is not within (0 <= index && index <= size()), or -1
-     */
-    void addSurfaceUpdatedListener(int index, SurfaceUpdatedListener l) throws IndexOutOfBoundsException;
-
-    void removeAllSurfaceUpdatedListener();
-
-    void removeSurfaceUpdatedListener(SurfaceUpdatedListener l);
-
-    SurfaceUpdatedListener getSurfaceUpdatedListener(int index);
-
-    SurfaceUpdatedListener[] getSurfaceUpdatedListeners();
 
 
     //

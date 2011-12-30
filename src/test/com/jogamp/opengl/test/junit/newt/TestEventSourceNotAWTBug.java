@@ -28,14 +28,11 @@
  
 package com.jogamp.opengl.test.junit.newt;
 
-import org.junit.Assert;
-import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 
 import javax.media.opengl.GLCapabilities;
 import javax.media.opengl.GLProfile;
@@ -45,7 +42,7 @@ import javax.swing.WindowConstants;
 
 import com.jogamp.newt.awt.NewtCanvasAWT;
 import com.jogamp.newt.opengl.GLWindow;
-import com.jogamp.opengl.test.junit.jogl.demos.gl2.gears.Gears;
+import com.jogamp.opengl.test.junit.jogl.demos.es2.GearsES2;
 import com.jogamp.opengl.test.junit.util.*;
 
 /**
@@ -55,11 +52,10 @@ public class TestEventSourceNotAWTBug extends UITestCase {
 
     @BeforeClass
     public static void initClass() {
-        GLProfile.initSingleton(true);
     }
 
     @Test
-    public void testEventSourceNotNewtBug() throws InterruptedException {
+    public void testEventSourceNotNewtBug() throws InterruptedException, InvocationTargetException {
         JFrame jf = new JFrame();
 
         jf.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
@@ -70,11 +66,11 @@ public class TestEventSourceNotAWTBug extends UITestCase {
         jf.getContentPane().add(canvas);
 
         // The following line isn't event necessary to see the problem.
-        glWindow.addGLEventListener(new Gears());
+        glWindow.addGLEventListener(new GearsES2());
 
         final JFrame f_jf = jf;
 
-        SwingUtilities.invokeLater(new Runnable() {
+        SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
                 f_jf.setSize(800, 600);
                 f_jf.setVisible(true);
@@ -83,7 +79,7 @@ public class TestEventSourceNotAWTBug extends UITestCase {
 
         Thread.sleep(500);
 
-        SwingUtilities.invokeLater(new Runnable() {
+        SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
                 f_jf.dispose();
             }

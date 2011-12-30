@@ -39,23 +39,24 @@ import java.util.List;
 
 import com.jogamp.common.GlueGenVersion;
 import com.jogamp.common.util.VersionUtil;
-import com.jogamp.nativewindow.NativeWindowVersion;
 import com.jogamp.newt.*;
 import com.jogamp.newt.event.*;
+
 import jogamp.newt.WindowImpl;
 
 import javax.media.nativewindow.*;
+import javax.media.nativewindow.util.InsetsImmutable;
 import javax.media.nativewindow.util.Point;
-import javax.media.nativewindow.util.Insets;
 import javax.media.opengl.*;
 
 import jogamp.opengl.FPSCounterImpl;
 import jogamp.opengl.GLDrawableHelper;
 import com.jogamp.opengl.JoglVersion;
+import com.jogamp.opengl.util.Animator;
 
 /**
- * An implementation of {@link javax.media.opengl.GLAutoDrawable} interface,
- * using an aggregation of a {@link com.jogamp.newt.Window} implementation.
+ * An implementation of {@link GLAutoDrawable} and {@link Window} interface,
+ * using a delegated {@link Window} instance, which may be an aggregation (lifecycle: created and destroyed).
  * <P>
  * This implementation does not make the OpenGL context current<br>
  * before calling the various input EventListener callbacks, ie {@link com.jogamp.newt.event.MouseListener} etc.<br>
@@ -67,7 +68,7 @@ import com.jogamp.opengl.JoglVersion;
  * <p>
  */
 public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSCounter {
-    private WindowImpl window;
+    private final WindowImpl window;
 
     /**
      * Constructor. Do not call this directly -- use {@link #create()} instead.
@@ -79,7 +80,7 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
         window.addWindowListener(new WindowAdapter() {
                 @Override
                 public void windowRepaint(WindowUpdateEvent e) {
-                    if( !GLWindow.this.window.isWindowLockedByOtherThread() && !GLWindow.this.helper.isExternalAnimatorAnimating() ) {
+                    if( !GLWindow.this.window.isWindowLockedByOtherThread() && !GLWindow.this.helper.isAnimatorAnimating() ) {
                         display();
                     }
                 }
@@ -87,7 +88,7 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
                 @Override
                 public void windowResized(WindowEvent e) {
                     sendReshape = true;
-                    if( !GLWindow.this.window.isWindowLockedByOtherThread() && !GLWindow.this.helper.isExternalAnimatorAnimating() ) {
+                    if( !GLWindow.this.window.isWindowLockedByOtherThread() && !GLWindow.this.helper.isAnimatorAnimating() ) {
                         display();
                     }
                 }
@@ -121,10 +122,13 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
     }
 
     /**
-     * Creates a new GLWindow attaching a new Window referencing a new Screen
-     * with the given GLCapabilities.
-     * <P>
-     * The resulting GLWindow owns the Window, Screen and Device, ie it will be destructed.
+     * Creates a new GLWindow attaching a new Window referencing a 
+     * new default Screen and default Display with the given GLCapabilities.
+     * <p>
+     * The lifecycle of this Window's Screen and Display is handled via {@link Screen#addReference()}
+     * and {@link Screen#removeReference()}.
+     * </p>
+     * The default Display will be reused if already instantiated.  
      */
     public static GLWindow create(GLCapabilitiesImmutable caps) {
         return new GLWindow(NewtFactory.createWindow(caps));
@@ -133,8 +137,10 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
     /**
      * Creates a new GLWindow attaching a new Window referencing the given Screen
      * with the given GLCapabilities.
-     * <P>
-     * The resulting GLWindow owns the Window, ie it will be destructed.
+     * <p>
+     * The lifecycle of this Window's Screen and Display is handled via {@link Screen#addReference()}
+     * and {@link Screen#removeReference()}.
+     * </p>
      */
     public static GLWindow create(Screen screen, GLCapabilitiesImmutable caps) {
         return new GLWindow(NewtFactory.createWindow(screen, caps));
@@ -142,8 +148,10 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
 
     /** 
      * Creates a new GLWindow attaching the given window.
-     * <P>
-     * The resulting GLWindow does not own the given Window, ie it will not be destructed. 
+     * <p>
+     * The lifecycle of this Window's Screen and Display is handled via {@link Screen#addReference()}
+     * and {@link Screen#removeReference()}.
+     * </p>
      */
     public static GLWindow create(Window window) {
         return new GLWindow(window);
@@ -152,11 +160,15 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
     /** 
      * Creates a new GLWindow attaching a new child Window 
      * of the given <code>parentNativeWindow</code> with the given GLCapabilities.
-     * <P>
+     * <p>
      * The Display/Screen will be compatible with the <code>parentNativeWindow</code>,
      * or even identical in case it's a Newt Window.
-     * <P>
-     * The resulting GLWindow owns the Window, ie it will be destructed. 
+     * An already instantiated compatible Display will be reused.  
+     * </p>
+     * <p>
+     * The lifecycle of this Window's Screen and Display is handled via {@link Screen#addReference()}
+     * and {@link Screen#removeReference()}.
+     * </p>
      */
     public static GLWindow create(NativeWindow parentNativeWindow, GLCapabilitiesImmutable caps) {
         return new GLWindow(NewtFactory.createWindow(parentNativeWindow, caps));
@@ -193,8 +205,8 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
         return window.getRequestedCapabilities();
     }
 
-    public final Window getWindow() {
-        return window;
+    public final Window getDelegatedWindow() {
+        return window.getDelegatedWindow();
     }
 
     public final NativeWindow getParent() {
@@ -213,32 +225,70 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
         return window.getTitle();
     }
 
+    public final boolean isPointerVisible() {
+        return window.isPointerVisible();
+    }
+    
+    public final void setPointerVisible(boolean mouseVisible) {
+        window.setPointerVisible(mouseVisible);        
+    }
+    
+    public final boolean isPointerConfined() {
+        return window.isPointerConfined();
+    }
+    
+    public final void confinePointer(boolean grab) {
+        window.confinePointer(grab);
+    }
+    
     public final void setUndecorated(boolean value) {
         window.setUndecorated(value);
     }
 
+    public final void warpPointer(int x, int y) {
+        window.warpPointer(x, y);
+    }
     public final boolean isUndecorated() {
         return window.isUndecorated();
     }
 
+    public final void setAlwaysOnTop(boolean value) {
+        window.setAlwaysOnTop(value);
+    }
+    
+    public final boolean isAlwaysOnTop() {
+        return window.isAlwaysOnTop();
+    }
+    
     public final void setFocusAction(FocusRunnable focusAction) {
         window.setFocusAction(focusAction);
+    }
+    
+    public void setKeyboardFocusHandler(KeyListener l) {
+        window.setKeyboardFocusHandler(l);
     }
     
     public final void requestFocus() {
         window.requestFocus();
     }
 
+    public final void requestFocus(boolean wait) {
+        window.requestFocus(wait);        
+    }
+    
     public boolean hasFocus() {
         return window.hasFocus();
     }
 
-    public final Insets getInsets() {
+    public final InsetsImmutable getInsets() {    
         return window.getInsets();
     }
-
+    
     public final void setPosition(int x, int y) {
         window.setPosition(x, y);
+    }
+    public void setTopLevelPosition(int x, int y) {        
+        window.setTopLevelPosition(x, y);
     }
 
     public final boolean setFullscreen(boolean fullscreen) {
@@ -267,12 +317,12 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
         return window.reparentWindow(newParent, forceDestroyCreate);
     }
 
-    public final void removeChild(NativeWindow win) {
-        window.removeChild(win);
+    public final boolean removeChild(NativeWindow win) {
+        return window.removeChild(win);
     }
 
-    public final void addChild(NativeWindow win) {
-        window.addChild(win);
+    public final boolean addChild(NativeWindow win) {
+        return window.addChild(win);
     }
     
     //----------------------------------------------------------------------
@@ -290,11 +340,10 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
     public final void setSize(int width, int height) {
         window.setSize(width, height);
     }
-
-    public final boolean isValid() {
-        return window.isValid();
+    public void setTopLevelSize(int width, int height) {
+        window.setTopLevelSize(width, height);        
     }
-
+    
     public final boolean isNativeValid() {
         return window.isNativeValid();
     }
@@ -319,7 +368,7 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
         }
 
         public synchronized void destroyActionInLock() {
-            if(Window.DEBUG_WINDOW_EVENT || Window.DEBUG_IMPLEMENTATION) {
+            if(Window.DEBUG_IMPLEMENTATION) {
                 String msg = "GLWindow.destroy() "+Thread.currentThread()+", start";
                 System.err.println(msg);
                 //Exception e1 = new Exception(msg);
@@ -342,26 +391,20 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
             context = null;
             drawable = null;
             
-            GLAnimatorControl ctrl = GLWindow.this.getAnimator();
-            if ( null!=ctrl ) {
-                ctrl.remove(GLWindow.this);
-            }            
-            // helper=null; // pending events ..
-            
-            if(Window.DEBUG_WINDOW_EVENT || Window.DEBUG_IMPLEMENTATION) {
+            if(Window.DEBUG_IMPLEMENTATION) {
                 System.err.println("GLWindow.destroy() "+Thread.currentThread()+", fin");
             }
         }
 
         public synchronized void resetCounter() {
-            if(Window.DEBUG_WINDOW_EVENT || Window.DEBUG_IMPLEMENTATION) {
+            if(Window.DEBUG_IMPLEMENTATION) {
                 System.err.println("GLWindow.resetCounter() "+Thread.currentThread());
             }
             GLWindow.this.resetFPSCounter();
         }
 
         public synchronized void setVisibleActionPost(boolean visible, boolean nativeWindowCreated) {
-            if(Window.DEBUG_WINDOW_EVENT || Window.DEBUG_IMPLEMENTATION) {
+            if(Window.DEBUG_IMPLEMENTATION) {
                 String msg = "GLWindow.setVisibleActionPost("+visible+", "+nativeWindowCreated+") "+Thread.currentThread()+", start";
                 System.err.println(msg);
                 // Exception e1 = new Exception(msg);
@@ -374,11 +417,11 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
             if (null == context && visible && 0 != window.getWindowHandle() && 0<getWidth()*getHeight()) {
                 NativeWindow nw;
                 if (window.getWrappedWindow() != null) {
-                    nw = NativeWindowFactory.getNativeWindow(window.getWrappedWindow(), window.getGraphicsConfiguration());
+                    nw = NativeWindowFactory.getNativeWindow(window.getWrappedWindow(), window.getPrivateGraphicsConfiguration());
                 } else {
                     nw = window;
                 }
-                GLCapabilitiesImmutable glCaps = (GLCapabilitiesImmutable) nw.getGraphicsConfiguration().getNativeGraphicsConfiguration().getChosenCapabilities();
+                GLCapabilitiesImmutable glCaps = (GLCapabilitiesImmutable) nw.getGraphicsConfiguration().getChosenCapabilities();
                 if(null==factory) {
                     factory = GLDrawableFactory.getFactory(glCaps.getGLProfile());
                 }
@@ -389,7 +432,7 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
                 context = drawable.createContext(sharedContext);
                 context.setContextCreationFlags(additionalCtxCreationFlags);                
             }
-            if(Window.DEBUG_WINDOW_EVENT || Window.DEBUG_IMPLEMENTATION) {
+            if(Window.DEBUG_IMPLEMENTATION) {
                 String msg = "GLWindow.setVisibleActionPost("+visible+", "+nativeWindowCreated+") "+Thread.currentThread()+", fin";
                 System.err.println(msg);
                 //Exception e1 = new Exception(msg);
@@ -510,28 +553,20 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
     }
 
     public void display() {
-        display(false);
-    }
-
-    public void display(boolean forceReshape) {
-        if( null == window ) { return; }
-
-        if(sendDestroy || ( null!=window && window.hasDeviceChanged() && GLAutoDrawable.SCREEN_CHANGE_ACTION_ENABLED ) ) {
+        if( !isNativeValid() || !isVisible() ) { return; }
+        
+        if(sendDestroy || ( window.hasDeviceChanged() && GLAutoDrawable.SCREEN_CHANGE_ACTION_ENABLED ) ) {
             sendDestroy=false;
             destroy();
             return;
         }
-
-        if( null == context && isVisible() && 0<getWidth()*getHeight() ) {
-            // retry native window and drawable/context creation 
+        
+        if( null == context && 0<getWidth()*getHeight() ) { // TODO: Check memory sync
+            // retry drawable and context creation 
             setVisible(true);
         }
 
-        if(forceReshape) {
-            sendReshape = true;
-        }
-        
-        if( isVisible() && null != context ) {
+        if( null != context ) { // TODO: Check memory sync
             if( NativeSurface.LOCK_SURFACE_NOT_READY < lockSurface() ) {
                 try {
                     helper.invokeGL(drawable, context, displayAction, initAction);
@@ -542,19 +577,39 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
         }
     }
     
-    /** This implementation uses a static value */
-    public void setAutoSwapBufferMode(boolean onOrOff) {
+    public void setAutoSwapBufferMode(boolean enable) {
         if(null!=helper) {
-            helper.setAutoSwapBufferMode(onOrOff);
+            helper.setAutoSwapBufferMode(enable);
         }
     }
 
-    /** This implementation uses a static value */
     public boolean getAutoSwapBufferMode() {
         if(null!=helper) {
             return helper.getAutoSwapBufferMode();
         }
         return false;
+    }
+    
+    /**
+     * @param t the thread for which context release shall be skipped, usually the animation thread,
+     *          ie. {@link Animator#getThread()}.
+     * @deprecated this is an experimental feature, 
+     *             intended for measuring performance in regards to GL context switch
+     */
+    public void setSkipContextReleaseThread(Thread t) {
+        if(null!=helper) {
+            helper.setSkipContextReleaseThread(t);
+        }
+    }
+
+    /**
+     * @deprecated see {@link #setSkipContextReleaseThread(Thread)} 
+     */
+    public Thread getSkipContextReleaseThread() {
+        if(null!=helper) {
+            return helper.getSkipContextReleaseThread();
+        }
+        return null;
     }
     
     public void swapBuffers() {
@@ -635,13 +690,6 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
         return fpsCounter.getTotalFPS();
     }        
 
-    private class SwapBuffersAction implements Runnable {
-        public final void run() {
-            drawable.swapBuffers();
-        }
-    }
-    private SwapBuffersAction swapBuffersAction = new SwapBuffersAction();
-
     //----------------------------------------------------------------------
     // GLDrawable methods
     //
@@ -721,18 +769,6 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
 
     public final void runOnEDTIfAvail(boolean wait, final Runnable task) {
         window.runOnEDTIfAvail(wait, task);
-    }
-
-    public final SurfaceUpdatedListener getSurfaceUpdatedListener(int index) {
-        return window.getSurfaceUpdatedListener(index);
-    }
-
-    public final SurfaceUpdatedListener[] getSurfaceUpdatedListeners() {
-        return window.getSurfaceUpdatedListeners();
-    }
-
-    public final void removeAllSurfaceUpdatedListener() {
-        window.removeAllSurfaceUpdatedListener();
     }
 
     public final void removeSurfaceUpdatedListener(SurfaceUpdatedListener l) {
@@ -872,17 +908,15 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
     public static void main(String args[]) {
         System.err.println(VersionUtil.getPlatformInfo());
         System.err.println(GlueGenVersion.getInstance());
-        System.err.println(NativeWindowVersion.getInstance());
         System.err.println(JoglVersion.getInstance());
-        System.err.println(NewtVersion.getInstance());
 
-        GLProfile glp = GLProfile.getDefault();
-        GLDrawableFactory factory = GLDrawableFactory.getFactory(glp);
-        List/*<GLCapabilitiesImmutable>*/ availCaps = factory.getAvailableCapabilities(null);
+        final GLProfile glp = GLProfile.getDefault();
+        final GLDrawableFactory factory = GLDrawableFactory.getFactory(glp);
+        final List<GLCapabilitiesImmutable> availCaps = factory.getAvailableCapabilities(null);
         for(int i=0; i<availCaps.size(); i++) {
             System.err.println(availCaps.get(i));
         }
-        GLCapabilitiesImmutable caps = new GLCapabilities( glp );
+        final GLCapabilitiesImmutable caps = new GLCapabilities( glp );
 
         GLWindow glWindow = GLWindow.create(caps);
         glWindow.setSize(128, 128);
@@ -891,6 +925,8 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
             public void init(GLAutoDrawable drawable) {
                 GL gl = drawable.getGL();
                 System.err.println(JoglVersion.getGLInfo(gl, null));
+                System.err.println("Requested: "+drawable.getNativeSurface().getGraphicsConfiguration().getRequestedCapabilities());
+                System.err.println("Chosen   : "+drawable.getChosenGLCapabilities());
             }
 
             public void reshape(GLAutoDrawable drawable, int x, int y, int width, int height) {
@@ -906,5 +942,4 @@ public class GLWindow implements GLAutoDrawable, Window, NEWTEventConsumer, FPSC
         glWindow.setVisible(true);
         glWindow.destroy();
     }
-
 }

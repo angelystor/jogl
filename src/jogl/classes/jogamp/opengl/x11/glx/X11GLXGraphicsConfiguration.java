@@ -35,13 +35,26 @@ package jogamp.opengl.x11.glx;
 
 import java.util.ArrayList;
 
-import javax.media.nativewindow.*;
-import javax.media.nativewindow.x11.*;
-import javax.media.opengl.*;
+import javax.media.nativewindow.GraphicsConfigurationFactory;
+import javax.media.nativewindow.x11.X11GraphicsConfiguration;
+import javax.media.nativewindow.x11.X11GraphicsScreen;
+import javax.media.opengl.DefaultGLCapabilitiesChooser;
+import javax.media.opengl.GL;
+import javax.media.opengl.GLCapabilities;
+import javax.media.opengl.GLCapabilitiesChooser;
+import javax.media.opengl.GLCapabilitiesImmutable;
+import javax.media.opengl.GLDrawableFactory;
+import javax.media.opengl.GLException;
+import javax.media.opengl.GLProfile;
+
+import jogamp.nativewindow.x11.X11Lib;
+import jogamp.nativewindow.x11.XRenderDirectFormat;
+import jogamp.nativewindow.x11.XRenderPictFormat;
+import jogamp.nativewindow.x11.XVisualInfo;
+import jogamp.opengl.Debug;
+import jogamp.opengl.GLGraphicsConfigurationUtil;
 
 import com.jogamp.common.nio.PointerBuffer;
-import jogamp.opengl.*;
-import jogamp.nativewindow.x11.*;
 
 public class X11GLXGraphicsConfiguration extends X11GraphicsConfiguration implements Cloneable {
     protected static final boolean DEBUG = Debug.debug("GraphicsConfiguration");
@@ -56,19 +69,20 @@ public class X11GLXGraphicsConfiguration extends X11GraphicsConfiguration implem
     }
 
     static X11GLXGraphicsConfiguration create(GLProfile glp, X11GraphicsScreen x11Screen, int fbcfgID) {
-      long display = x11Screen.getDevice().getHandle();
+      final long display = x11Screen.getDevice().getHandle();
       if(0==display) {
           throw new GLException("Display null of "+x11Screen);
       }
-      int screen = x11Screen.getIndex();
-      long fbcfg = glXFBConfigID2FBConfig(display, screen, fbcfgID);
+      final int screen = x11Screen.getIndex();
+      final long fbcfg = glXFBConfigID2FBConfig(display, screen, fbcfgID);
       if(0==fbcfg) {
           throw new GLException("FBConfig null of "+toHexString(fbcfgID));
       }
       if(null==glp) {
         glp = GLProfile.getDefault(x11Screen.getDevice());
       }
-      X11GLCapabilities caps = GLXFBConfig2GLCapabilities(glp, display, fbcfg, true, true, true, GLXUtil.isMultisampleAvailable(display));
+      final X11GLXDrawableFactory factory = (X11GLXDrawableFactory) GLDrawableFactory.getDesktopFactory();
+      final X11GLCapabilities caps = GLXFBConfig2GLCapabilities(glp, display, fbcfg, true, true, true, factory.isGLXMultisampleAvailable(x11Screen.getDevice()));
       if(null==caps) {
           throw new GLException("GLCapabilities null of "+toHexString(fbcfg));
       }
@@ -98,10 +112,6 @@ public class X11GLXGraphicsConfiguration extends X11GraphicsConfiguration implem
                 System.err.println("!!! updateGraphicsConfiguration: "+this);
             }
         }
-    }
-
-    private static int nonZeroOrDontCare(int value) {
-        return value != 0 ? value : (int)GLX.GLX_DONT_CARE ;
     }
 
     static int[] GLCapabilities2AttribList(GLCapabilitiesImmutable caps,
@@ -138,6 +148,8 @@ public class X11GLXGraphicsConfiguration extends X11GraphicsConfiguration implem
             res[idx++] = GLX.GLX_STEREO;
             res[idx++] = caps.getStereo()?GL.GL_TRUE:GL.GL_FALSE;
             res[idx++] = GLX.GLX_TRANSPARENT_TYPE;
+            res[idx++] = GLX.GLX_NONE;
+            /**
             res[idx++] = caps.isBackgroundOpaque()?GLX.GLX_NONE:GLX.GLX_TRANSPARENT_RGB;
             if(!caps.isBackgroundOpaque()) {
                 res[idx++] = GLX.GLX_TRANSPARENT_RED_VALUE;
@@ -148,7 +160,7 @@ public class X11GLXGraphicsConfiguration extends X11GraphicsConfiguration implem
                 res[idx++] = caps.getTransparentBlueValue()>=0?caps.getTransparentBlueValue():(int)GLX.GLX_DONT_CARE;
                 res[idx++] = GLX.GLX_TRANSPARENT_ALPHA_VALUE;
                 res[idx++] = caps.getTransparentAlphaValue()>=0?caps.getTransparentAlphaValue():(int)GLX.GLX_DONT_CARE;
-            }
+            } */
         } else {
             if (caps.getDoubleBuffered()) {
               res[idx++] = GLX.GLX_DOUBLEBUFFER;
@@ -252,6 +264,14 @@ public class X11GLXGraphicsConfiguration extends X11GraphicsConfiguration implem
     return null;
   }
 
+  static XRenderDirectFormat XVisual2XRenderMask(long dpy, long visual) {
+    XRenderPictFormat renderPictFmt = X11Lib.XRenderFindVisualFormat(dpy, visual);
+    if(null == renderPictFmt) {
+        return null;
+    }
+    return renderPictFmt.getDirect();
+  }
+
   static boolean GLXFBConfig2GLCapabilities(ArrayList capsBucket,
                                             GLProfile glp, long display, long fbcfg,
                                             int winattrmask, boolean isMultisampleAvailable) {
@@ -298,20 +318,18 @@ public class X11GLXGraphicsConfiguration extends X11GraphicsConfiguration implem
       res.setSampleBuffers(glXGetFBConfig(display, fbcfg, GLX.GLX_SAMPLE_BUFFERS, tmp, 0) != 0);
       res.setNumSamples   (glXGetFBConfig(display, fbcfg, GLX.GLX_SAMPLES,        tmp, 0));
     }
-    res.setBackgroundOpaque(glXGetFBConfig(display, fbcfg, GLX.GLX_TRANSPARENT_TYPE, tmp, 0) == GLX.GLX_NONE);
-    if(!res.isBackgroundOpaque()) {
-        glXGetFBConfig(display, fbcfg, GLX.GLX_TRANSPARENT_RED_VALUE,  tmp, 0);
-        res.setTransparentRedValue(tmp[0]==GLX.GLX_DONT_CARE?-1:tmp[0]);
-
-        glXGetFBConfig(display, fbcfg, GLX.GLX_TRANSPARENT_GREEN_VALUE,  tmp, 0);
-        res.setTransparentGreenValue(tmp[0]==GLX.GLX_DONT_CARE?-1:tmp[0]);
-
-        glXGetFBConfig(display, fbcfg, GLX.GLX_TRANSPARENT_BLUE_VALUE,  tmp, 0);
-        res.setTransparentBlueValue(tmp[0]==GLX.GLX_DONT_CARE?-1:tmp[0]);
-
-        glXGetFBConfig(display, fbcfg, GLX.GLX_TRANSPARENT_ALPHA_VALUE,  tmp, 0);
-        res.setTransparentAlphaValue(tmp[0]==GLX.GLX_DONT_CARE?-1:tmp[0]);
+    final XRenderDirectFormat xrmask = ( null != visualInfo ) ? 
+                                         XVisual2XRenderMask( display, visualInfo.getVisual() ) : 
+                                         null ;
+    final int alphaMask = ( null != xrmask ) ? xrmask.getAlphaMask() : 0;
+    res.setBackgroundOpaque( 0 >= alphaMask );
+    if( !res.isBackgroundOpaque() ) {
+        res.setTransparentRedValue(xrmask.getRedMask());
+        res.setTransparentGreenValue(xrmask.getGreenMask());
+        res.setTransparentBlueValue(xrmask.getBlueMask());
+        res.setTransparentAlphaValue(alphaMask);
     }
+    
     try { 
         res.setPbufferFloatingPointBuffers(glXGetFBConfig(display, fbcfg, GLXExt.GLX_FLOAT_COMPONENTS_NV, tmp, 0) != GL.GL_FALSE);
     } catch (Exception e) {}
@@ -359,7 +377,7 @@ public class X11GLXGraphicsConfiguration extends X11GraphicsConfiguration implem
       int[] count = new int[1];
       XVisualInfo template = XVisualInfo.create();
       template.setVisualid(visualID);
-      XVisualInfo[] infos = X11Util.XGetVisualInfo(display, X11Lib.VisualIDMask, template, count, 0);
+      XVisualInfo[] infos = X11Lib.XGetVisualInfo(display, X11Lib.VisualIDMask, template, count, 0);
       if (infos == null || infos.length == 0) {
             return null;
       }  
@@ -419,6 +437,17 @@ public class X11GLXGraphicsConfiguration extends X11GraphicsConfiguration implem
     if (isMultisampleEnabled) {
       res.setSampleBuffers(glXGetConfig(display, info, GLX.GLX_SAMPLE_BUFFERS, tmp, 0) != 0);
       res.setNumSamples   (glXGetConfig(display, info, GLX.GLX_SAMPLES,        tmp, 0));
+    }
+    final XRenderDirectFormat xrmask = ( null != info ) ? 
+                                         XVisual2XRenderMask( display, info.getVisual() ) : 
+                                         null ;
+    final int alphaMask = ( null != xrmask ) ? xrmask.getAlphaMask() : 0;
+    res.setBackgroundOpaque( 0 >= alphaMask );
+    if( !res.isBackgroundOpaque() ) {
+        res.setTransparentRedValue(xrmask.getRedMask());
+        res.setTransparentGreenValue(xrmask.getGreenMask());
+        res.setTransparentBlueValue(xrmask.getBlueMask());
+        res.setTransparentAlphaValue(alphaMask);
     }
 
     return GLGraphicsConfigurationUtil.addGLCapabilitiesPermutations(capsBucket, res, drawableTypeBits);

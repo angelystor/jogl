@@ -154,6 +154,13 @@ public interface GLBase {
   public boolean isGL2ES2();
 
   /**
+   * Indicates whether this GL object is compatible with OpenGL ES2.
+   * @return true if this context is an ES2 context or implements 
+   *         the extension <code>GL_ARB_ES2_compatibility</code>, otherwise false 
+   */
+  public boolean isGLES2Compatible();
+
+  /**
    * Indicates whether this GL object conforms to the GL2GL3 compatible profile.
    * @return whether this GL object conforms to the GL2GL3 profile
    */
@@ -286,6 +293,17 @@ public interface GLBase {
     * "GL_ARB_vertex_program").
     */
    public boolean isExtensionAvailable(String glExtensionName);
+
+   /**
+    * Returns true if the GL context supports non power of two (NPOT) textures,
+    * otherwise false.
+    * <p>
+    * NPOT textures are supported in OpenGL >= 3, GLES2 or if the
+    * 'GL_ARB_texture_non_power_of_two' extension is available.
+    * </p>
+    * @return
+    */
+   public boolean isNPOTTextureAvailable();
 
    /** Provides a platform-independent way to specify the minimum swap
        interval for buffer swaps. An argument of 0 disables

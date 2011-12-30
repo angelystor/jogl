@@ -28,19 +28,10 @@
 
 package com.jogamp.opengl.test.junit.newt;
 
-import java.lang.reflect.*;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Test;
 
-import javax.media.nativewindow.*;
 import javax.media.opengl.*;
 
 import com.jogamp.newt.*;
@@ -50,7 +41,7 @@ import java.io.IOException;
 
 import com.jogamp.opengl.test.junit.util.UITestCase;
 import com.jogamp.opengl.test.junit.util.MiscUtils;
-import com.jogamp.opengl.test.junit.jogl.demos.gl2.gears.Gears;
+import com.jogamp.opengl.test.junit.jogl.demos.es2.GearsES2;
 
 public class TestDisplayLifecycle01NEWT extends UITestCase {
     static GLProfile glp;
@@ -60,7 +51,6 @@ public class TestDisplayLifecycle01NEWT extends UITestCase {
 
     @BeforeClass
     public static void initClass() {
-        GLProfile.initSingleton(true);
         width  = 640;
         height = 480;
         glp = GLProfile.getDefault();
@@ -85,7 +75,7 @@ public class TestDisplayLifecycle01NEWT extends UITestCase {
         }
         glWindow.setUpdateFPSFrames(1, null);
 
-        GLEventListener demo = new Gears();
+        GLEventListener demo = new GearsES2();
         setDemoFields(demo, glWindow);
         glWindow.addGLEventListener(demo);
         glWindow.addWindowListener(new TraceWindowAdapter());
@@ -203,7 +193,7 @@ public class TestDisplayLifecycle01NEWT extends UITestCase {
 
         // destruction ..
         window.destroy();
-        display.dumpDisplayList("Post destroy(true)");
+        Display.dumpDisplayList("Post destroy(true)");
 
         // end-state == start-state
         Assert.assertEquals(0,Display.getActiveDisplayNumber());

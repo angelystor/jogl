@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2009 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright (c) 2011 JogAmp Community. All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -32,19 +33,45 @@
  */
 
 #import <AppKit/AppKit.h>
+#import <pthread.h>
 #import "jni.h"
+
+#include "NewtCommon.h"
+
+// #define VERBOSE_ON 1
+
+#ifdef VERBOSE_ON
+    #define DBG_PRINT(...) NSLog(@ __VA_ARGS__)
+    // #define DBG_PRINT(...) fprintf(stderr, __VA_ARGS__); fflush(stderr)
+#else
+    #define DBG_PRINT(...)
+#endif
 
 @interface NewtView : NSView
 {
     jobject javaWindowObject;
 
     // This is set while messages are being dispatched and cleared afterward
-    JNIEnv* env;
+    JavaVM *jvmHandle;
+    int jvmVersion;
+
+    volatile BOOL destroyNotifySent;
+    volatile BOOL softLocked;
+    pthread_mutex_t softLockSync;
+
+    NSTrackingRectTag ptrTrackingTag;
+    NSRect ptrRect;
+    NSCursor * myCursor;
 }
 
+- (id)initWithFrame:(NSRect)frameRect;
+- (void) dealloc;
+
 /* Set during event dispatching cycle */
-- (void) setJNIEnv: (JNIEnv*) env;
-- (JNIEnv*) getJNIEnv;
+- (void) setJVMHandle: (JavaVM*) vm;
+- (JavaVM*) getJVMHandle;
+- (void) setJVMVersion: (int) ver;
+- (int) getJVMVersion;
 
 /* Register or deregister (NULL) the java Window object, 
    ie, if NULL, no events are send */
@@ -52,6 +79,22 @@
 - (jobject) getJavaWindowObject;
 
 - (void) rightMouseDown: (NSEvent*) theEvent;
+- (void) resetCursorRects;
+- (NSCursor *) cursor;
+
+- (void) setDestroyNotifySent: (BOOL) v;
+- (BOOL) getDestroyNotifySent;
+
+- (BOOL) softLock;
+- (void) softUnlock;
+
+- (BOOL) needsDisplay;
+- (void) displayIfNeeded;
+- (void) display;
+- (void) drawRect:(NSRect)dirtyRect;
+- (void) viewDidHide;
+- (void) viewDidUnhide;
+- (BOOL) acceptsFirstResponder;
 
 @end
 
@@ -61,15 +104,43 @@
 @interface NewtMacWindow : NSWindow 
 #endif
 {
+    BOOL mouseConfined;
+    BOOL mouseVisible;
+    BOOL mouseInside;
+    BOOL cursorIsHidden;
+    NSPoint lastInsideMousePosition;
+@public
+    int cachedInsets[4]; // l, r, t, b
 }
 
 + (BOOL) initNatives: (JNIEnv*) env forClass: (jobject) clazz;
 
-- (void) updateInsets: (JNIEnv*) env;
-
 - (id) initWithContentRect: (NSRect) contentRect
        styleMask: (NSUInteger) windowStyle
        backing: (NSBackingStoreType) bufferingType
+       defer: (BOOL) deferCreation
        screen:(NSScreen *)screen;
+
+- (void) updateInsets: (JNIEnv*) env;
+- (void) attachToParent: (NSWindow*) parent;
+- (void) detachFromParent: (NSWindow*) parent;
+
+- (NSPoint) newtScreenWinPos2OSXScreenPos: (NSPoint) p;
+- (NSPoint) newtClientWinPos2OSXScreenPos: (NSPoint) p;
+- (NSPoint) getLocationOnScreen: (NSPoint) p;
+- (NSPoint) screenPos2NewtClientWinPos: (NSPoint) p;
+
+- (void) cursorHide:(BOOL)v;
+- (void) setMouseVisible:(BOOL)v;
+- (void) setMouseConfined:(BOOL)v;
+- (void) setMousePosition:(NSPoint)p;
+
+- (BOOL) becomeFirstResponder;
+- (BOOL) resignFirstResponder;
+- (void) becomeKeyWindow;
+- (void) resignKeyWindow;
+- (void) windowDidBecomeKey: (NSNotification *) notification;
+- (void) windowDidResignKey: (NSNotification *) notification;
+- (void) focusChanged: (BOOL) gained;
 
 @end

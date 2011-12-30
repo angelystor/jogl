@@ -30,14 +30,14 @@ package com.jogamp.graph.curve;
 import java.util.ArrayList;
 import java.util.Collections;
 
-
+import com.jogamp.graph.curve.tess.Triangulation;
+import com.jogamp.graph.curve.tess.Triangulator;
 import com.jogamp.graph.geom.AABBox;
 import com.jogamp.graph.geom.Outline;
 import com.jogamp.graph.geom.Triangle;
 import com.jogamp.graph.geom.Vertex;
 import com.jogamp.graph.math.VectorUtil;
 
-import com.jogamp.graph.curve.tess.CDTriangulator2D;
 
 /** A Generic shape objects which is defined by a list of Outlines.
  * This Shape can be transformed to Triangulations.
@@ -93,9 +93,9 @@ import com.jogamp.graph.curve.tess.CDTriangulator2D;
  * @see Region
  */
 public class OutlineShape implements Comparable<OutlineShape> {
-  /**
-    * Outline's vertices have undefined state until transformed.
-    */
+    /**
+     * Outline's vertices have undefined state until transformed.
+     */
     public enum VerticesState {
         UNDEFINED(0), QUADRATIC_NURBS(1);
 
@@ -105,9 +105,9 @@ public class OutlineShape implements Comparable<OutlineShape> {
             this.state = state;
         }
     } 
-    
+
     public static final int DIRTY_BOUNDS = 1 << 0;
-    
+
     private final Vertex.Factory<? extends Vertex> vertexFactory;
     private VerticesState outlineState;
 
@@ -119,7 +119,7 @@ public class OutlineShape implements Comparable<OutlineShape> {
 
     /** dirty bits DIRTY_BOUNDS */
     private int dirtyBits;  
-    
+
     /** Create a new Outline based Shape
      */
     public OutlineShape(Vertex.Factory<? extends Vertex> factory) {
@@ -139,7 +139,7 @@ public class OutlineShape implements Comparable<OutlineShape> {
         bbox.reset();
         dirtyBits = 0;    
     }
-    
+
     /** Returns the associated vertex factory of this outline shape
      * @return Vertex.Factory object
      */
@@ -148,7 +148,7 @@ public class OutlineShape implements Comparable<OutlineShape> {
     public int getOutlineNumber() {
         return outlines.size();
     }
-    
+
     /** Add a new empty {@link Outline} 
      * to the end of this shape's outline list.
      * <p>If the {@link #getLastOutline()} is empty already, no new one will be added.</p>
@@ -156,7 +156,7 @@ public class OutlineShape implements Comparable<OutlineShape> {
      * After a call to this function all new vertices added
      * will belong to the new outline
      */
-    public void addEmptyOutline(){
+    public void addEmptyOutline() {
         if( !getLastOutline().isEmpty() ) {
             outlines.add(new Outline());
         }
@@ -225,7 +225,7 @@ public class OutlineShape implements Comparable<OutlineShape> {
             addOutline(outlineShape.getOutline(i));
         }
     }
-        
+
     /** Replaces the {@link Outline} element at the given {@code position}.
      * <p>Sets the bounding box dirty, hence a next call to {@link #getBounds()} will validate it.</p>
      * 
@@ -241,7 +241,7 @@ public class OutlineShape implements Comparable<OutlineShape> {
         outlines.set(position, outline);
         dirtyBits |= DIRTY_BOUNDS;
     }
-    
+
     /** Removes the {@link Outline} element at the given {@code position}.
      * <p>Sets the bounding box dirty, hence a next call to {@link #getBounds()} will validate it.</p>
      * 
@@ -252,40 +252,40 @@ public class OutlineShape implements Comparable<OutlineShape> {
         dirtyBits |= DIRTY_BOUNDS;
         return outlines.remove(position);
     }
-        
+
     /** Get the last added outline to the list
      * of outlines that define the shape
      * @return the last outline
      */
-    public final Outline getLastOutline(){
+    public final Outline getLastOutline() {
         return outlines.get(outlines.size()-1);
     }
-    
+
     /** @return the {@code Outline} at {@code position} 
      * @throws IndexOutOfBoundsException if position is out of range (position < 0 || position >= getOutlineNumber())
      */
     public Outline getOutline(int position) throws IndexOutOfBoundsException {
         return outlines.get(position);
     }    
-        
+
     /** Adds a vertex to the last open outline in the
      *  shape. 
      * @param v the vertex to be added to the OutlineShape
      */
-    public final void addVertex(Vertex v){
+    public final void addVertex(Vertex v) {
         final Outline lo = getLastOutline();
         lo.addVertex(v);
         if( 0 == ( dirtyBits & DIRTY_BOUNDS ) ) {
             bbox.resize(lo.getBounds());
         }
     }
-    
+
     /** Adds a vertex to the last open outline in the shape. 
      * at {@code position} 
      * @param position indx at which the vertex will be added 
      * @param v the vertex to be added to the OutlineShape
      */
-    public final void addVertex(int position, Vertex v){
+    public final void addVertex(int position, Vertex v) {
         final Outline lo = getLastOutline();
         lo.addVertex(position, v);
         if( 0 == ( dirtyBits & DIRTY_BOUNDS ) ) {
@@ -337,7 +337,7 @@ public class OutlineShape implements Comparable<OutlineShape> {
      * A new temp vertex is added at the end which 
      * is equal to the first.</p>
      */
-    public void closeLastOutline(){
+    public void closeLastOutline() {
         getLastOutline().setClosed(true);
     }
 
@@ -347,54 +347,161 @@ public class OutlineShape implements Comparable<OutlineShape> {
     public final VerticesState getOutlineState() {
         return outlineState;
     }
-        
+
     /** Ensure the outlines represent
      * the specified destinationType.
-     * 
-     * @param destinationType the target outline's vertices state. Currently only {@link OutlineShape.VerticesState#QUADRATIC_NURBS} are supported.
+     * and removes all overlaps in boundary triangles
+     * @param destinationType the target outline's vertices state. Currently only 
+     * {@link OutlineShape.VerticesState#QUADRATIC_NURBS} are supported.
      */
-    public void transformOutlines(VerticesState destinationType){
+    public void transformOutlines(VerticesState destinationType) {
         if(outlineState != destinationType){
             if(destinationType == VerticesState.QUADRATIC_NURBS){
                 transformOutlines2Quadratic();
+                checkOverlaps();
             } else {
                 throw new IllegalStateException("destinationType "+destinationType.name()+" not supported (currently "+outlineState.name()+")");
             }
         }
     }
 
-    private void transformOutlines2Quadratic(){
-        final int count = getOutlineNumber();
-        for (int cc = 0; cc < count; cc++){            
+    private void subdivideTriangle(final Outline outline, Vertex a, Vertex b, Vertex c, int index){
+        float[] v1 = VectorUtil.mid(a.getCoord(), b.getCoord());
+        float[] v3 = VectorUtil.mid(b.getCoord(), c.getCoord());
+        float[] v2 = VectorUtil.mid(v1, v3);
+
+        //drop off-curve vertex to image on the curve
+        b.setCoord(v2, 0, 3); 
+        b.setOnCurve(true);
+
+        outline.addVertex(index, vertexFactory.create(v1, 0, 3, false));
+        outline.addVertex(index+2, vertexFactory.create(v3, 0, 3, false));
+    }
+
+    /** Check overlaps between curved triangles
+     *  first check if any vertex in triangle a is in triangle b 
+     *  second check if edges of triangle a intersect segments of triangle b
+     *  if any of the two tests is true we divide current triangle
+     *  and add the other to the list of overlaps
+     *  
+     *  Loop until overlap array is empty. (check only in first pass)
+     */
+    private void checkOverlaps() { 
+        ArrayList<Vertex> overlaps = new ArrayList<Vertex>(3);
+        int count = getOutlineNumber();
+        boolean firstpass = true;
+        do {
+            for (int cc = 0; cc < count; cc++) { 
+                final Outline outline = getOutline(cc);
+                int vertexCount = outline.getVertexCount();
+                for(int i=0; i < outline.getVertexCount(); i++) {
+                    final Vertex currentVertex = outline.getVertex(i);
+                    if ( !currentVertex.isOnCurve()) {
+                        final Vertex nextV = outline.getVertex((i+1)%vertexCount);
+                        final Vertex prevV = outline.getVertex((i+vertexCount-1)%vertexCount);
+                        Vertex overlap =null;
+
+                        //check for overlap even if already set for subdivision
+                        //ensuring both trianglur overlaps get divided
+                        //for pref. only check in first pass
+                        //second pass to clear the overlaps arrray(reduces precision errors)
+                        if(firstpass) {
+                            overlap = checkTriOverlaps(prevV, currentVertex, nextV);
+                        }
+                        if(overlaps.contains(currentVertex) || overlap != null) {
+                            overlaps.remove(currentVertex);
+
+                            subdivideTriangle(outline, prevV, currentVertex, nextV, i);
+                            i+=3;
+                            vertexCount+=2;
+
+                            if(overlap != null && !overlap.isOnCurve()) {
+                                if(!overlaps.contains(overlap))
+                                    overlaps.add(overlap);
+                            }
+                        }
+                    }
+                }
+            }
+            firstpass = false;
+        }while(!overlaps.isEmpty());
+    }
+
+    private Vertex checkTriOverlaps(Vertex a, Vertex b, Vertex c) {
+        int count = getOutlineNumber();
+        for (int cc = 0; cc < count; cc++) { 
             final Outline outline = getOutline(cc);
-            int vertexNumberLessOne = outline.getVertexNumber() - 1;
-            for(int i=0; i < vertexNumberLessOne; i++) {
+            int vertexCount = outline.getVertexCount();
+            for(int i=0; i < vertexCount; i++) {
+                final Vertex current = outline.getVertex(i);
+                if(current.isOnCurve() || current == a || current == b || current == c) {
+                    continue;
+                }
+                final Vertex nextV = outline.getVertex((i+1)%vertexCount);
+                final Vertex prevV = outline.getVertex((i+vertexCount-1)%vertexCount);
+
+                //skip neighboring triangles
+                if(prevV == c || nextV == a) {
+                    continue;
+                }
+
+                if(VectorUtil.vertexInTriangle(a.getCoord(), b.getCoord(), c.getCoord(), current.getCoord())
+                        || VectorUtil.vertexInTriangle(a.getCoord(), b.getCoord(), c.getCoord(), nextV.getCoord())
+                        || VectorUtil.vertexInTriangle(a.getCoord(), b.getCoord(), c.getCoord(), prevV.getCoord())) {
+
+                    return current;
+                }
+                if(VectorUtil.tri2SegIntersection(a, b, c, prevV, current) 
+                        || VectorUtil.tri2SegIntersection(a, b, c, current, nextV)
+                        || VectorUtil.tri2SegIntersection(a, b, c, prevV, nextV)) {
+                    return current;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void transformOutlines2Quadratic() {
+        int count = getOutlineNumber();
+        for (int cc = 0; cc < count; cc++) {            
+            final Outline outline = getOutline(cc);
+            int vertexCount = outline.getVertexCount();
+
+            for(int i=0; i < vertexCount; i++) {
                 final Vertex currentVertex = outline.getVertex(i);
-                final Vertex nextVertex = outline.getVertex(i+1);
+                final Vertex nextVertex = outline.getVertex((i+1)%vertexCount);
                 if ( !currentVertex.isOnCurve() && !nextVertex.isOnCurve() ) {
-                    final float[] newCoords = VectorUtil.mid(currentVertex.getCoord(), nextVertex.getCoord());
+                    final float[] newCoords = VectorUtil.mid(currentVertex.getCoord(), 
+                            nextVertex.getCoord());
                     final Vertex v = vertexFactory.create(newCoords, 0, 3, true);
-                    v.setOnCurve(true);                    
                     i++;
-                    vertexNumberLessOne++;
+                    vertexCount++;
                     outline.addVertex(i, v);
                 }                
             }
-            // Cut off last vertex (which is on-curve)
-            // FIXME: original code skipped the last element (it _is_ unrelated to the xform above)
-            // FIXME: understand why the last element produces artifacts in rendering
-            if( vertexNumberLessOne >= 0 ) {
-                outline.removeVertex(vertexNumberLessOne);
-            }                
+            if(vertexCount <= 0) {
+                outlines.remove(outline);
+                cc--;
+                count--;
+                continue;
+            }
+
+            if( vertexCount > 0 ) {
+                if(VectorUtil.checkEquality(outline.getVertex(0).getCoord(), 
+                        outline.getLastVertex().getCoord())) {
+                    outline.removeVertex(vertexCount-1);
+                }
+            }
         }
         outlineState = VerticesState.QUADRATIC_NURBS;
     }
 
-    private void generateVertexIds(){
+    private void generateVertexIds() {
         int maxVertexId = 0;
         for(int i=0; i<outlines.size(); i++) {
             final ArrayList<Vertex> vertices = outlines.get(i).getVertices();
-            for(Vertex vert:vertices){
+            for(int pos=0; pos<vertices.size(); pos++) {
+                Vertex vert = vertices.get(pos);
                 vert.setId(maxVertexId);
                 maxVertexId++;
             }
@@ -424,12 +531,12 @@ public class OutlineShape implements Comparable<OutlineShape> {
         sortOutlines();
         generateVertexIds();
 
-        CDTriangulator2D triangulator2d = new CDTriangulator2D();
+        Triangulator triangulator2d = Triangulation.create();
         for(int index = 0; index<outlines.size(); index++) {
             triangulator2d.addCurve(outlines.get(index));
         }
-        
-        ArrayList<Triangle> triangles = triangulator2d.generateTriangulation();
+
+        ArrayList<Triangle> triangles = triangulator2d.generate();
         triangulator2d.reset();
 
         return triangles;
@@ -442,7 +549,7 @@ public class OutlineShape implements Comparable<OutlineShape> {
         Collections.sort(outlines);
         Collections.reverse(outlines);
     }
-    
+
     /** Compare two outline shapes with Bounding Box area
      * as criteria. 
      * @see java.lang.Comparable#compareTo(java.lang.Object)
@@ -458,7 +565,7 @@ public class OutlineShape implements Comparable<OutlineShape> {
         }
         return 0;
     }
-    
+
     private final void validateBoundingBox() {
         dirtyBits &= ~DIRTY_BOUNDS;
         bbox.reset();
@@ -466,7 +573,7 @@ public class OutlineShape implements Comparable<OutlineShape> {
             bbox.resize(outlines.get(i).getBounds());
         }
     }
-         
+
     public final AABBox getBounds() {
         if( 0 == ( dirtyBits & DIRTY_BOUNDS ) ) {
             validateBoundingBox();
@@ -503,7 +610,7 @@ public class OutlineShape implements Comparable<OutlineShape> {
         }
         return true;
     }
-    
+
     /**
      * @return deep clone of this OutlineShape w/o Region
      */

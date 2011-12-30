@@ -35,19 +35,25 @@
 
 package jogamp.opengl.egl;
 
-import javax.media.opengl.*;
-import jogamp.opengl.*;
-import com.jogamp.gluegen.runtime.ProcAddressTable;
-import com.jogamp.gluegen.runtime.opengl.GLProcAddressResolver;
-import java.nio.*;
-import java.util.*;
+import java.nio.ByteBuffer;
+import java.util.Map;
+
 import javax.media.nativewindow.AbstractGraphicsConfiguration;
 import javax.media.nativewindow.AbstractGraphicsDevice;
+import javax.media.opengl.GLContext;
+import javax.media.opengl.GLException;
+import javax.media.opengl.GLProfile;
+
+import jogamp.opengl.GLContextImpl;
+import jogamp.opengl.GLDrawableImpl;
+
+import com.jogamp.gluegen.runtime.ProcAddressTable;
+import com.jogamp.gluegen.runtime.opengl.GLProcAddressResolver;
 
 public abstract class EGLContext extends GLContextImpl {
     private boolean eglQueryStringInitialized;
     private boolean eglQueryStringAvailable;
-    private EGLExt eglExt;
+    private EGLExt _eglExt;
     // Table that holds the addresses of the native C-language entry points for
     // EGL extension functions.
     private EGLExtProcAddressTable eglExtProcAddressTable;
@@ -57,15 +63,23 @@ public abstract class EGLContext extends GLContextImpl {
         super(drawable, shareWith);
     }
 
+    @Override
+    protected void resetStates() {
+        eglQueryStringInitialized = false;
+        eglQueryStringAvailable = false;
+        // no inner state _eglExt = null;
+        super.resetStates();
+    }
+    
     public Object getPlatformGLExtensions() {
       return getEGLExt();
     }
 
     public EGLExt getEGLExt() {
-      if (eglExt == null) {
-        eglExt = new EGLExtImpl(this);
+      if (_eglExt == null) {
+        _eglExt = new EGLExtImpl(this);
       }
-      return eglExt;
+      return _eglExt;
     }
 
     public final ProcAddressTable getPlatformExtProcAddressTable() {
@@ -84,7 +98,7 @@ public abstract class EGLContext extends GLContextImpl {
         return true;
     }
 
-    protected void makeCurrentImpl(boolean newCreated) throws GLException {
+    protected void makeCurrentImpl() throws GLException {
         if(EGL.EGL_NO_DISPLAY==((EGLDrawable)drawable).getDisplay() ) {
             throw new GLException("drawable not properly initialized, NO DISPLAY: "+drawable);
         }
@@ -124,12 +138,12 @@ public abstract class EGLContext extends GLContextImpl {
         // FIXME
     }
 
-    protected boolean createImpl() throws GLException {
+    protected boolean createImpl(GLContextImpl shareWith) throws GLException {
         long eglDisplay = ((EGLDrawable)drawable).getDisplay();
         EGLGraphicsConfiguration config = ((EGLDrawable)drawable).getGraphicsConfiguration();
         GLProfile glProfile = drawable.getGLProfile();
         long eglConfig = config.getNativeConfig();
-        long shareWith = EGL.EGL_NO_CONTEXT;
+        long shareWithHandle = EGL.EGL_NO_CONTEXT;
 
         if (eglDisplay == 0) {
             throw new GLException("Error: attempted to create an OpenGL context without a display connection");
@@ -149,10 +163,9 @@ public abstract class EGLContext extends GLContextImpl {
             }
         }
 
-        EGLContext other = (EGLContext) GLContextShareSet.getShareContext(this);
-        if (other != null) {
-            shareWith = other.getHandle();
-            if (shareWith == 0) {
+        if (shareWith != null) {
+            shareWithHandle = shareWith.getHandle();
+            if (shareWithHandle == 0) {
                 throw new GLException("GLContextShareSet returned an invalid OpenGL context");
             }
         }
@@ -168,19 +181,18 @@ public abstract class EGLContext extends GLContextImpl {
         } else {
             throw new GLException("Error creating OpenGL context - invalid GLProfile: "+glProfile);
         }
-        contextHandle = EGL.eglCreateContext(eglDisplay, eglConfig, shareWith, contextAttrs, 0);
+        contextHandle = EGL.eglCreateContext(eglDisplay, eglConfig, shareWithHandle, contextAttrs, 0);
         if (contextHandle == 0) {
-            throw new GLException("Error creating OpenGL context: eglDisplay 0x"+Long.toHexString(eglDisplay)+
-                                  ", "+glProfile+", error 0x"+Integer.toHexString(EGL.eglGetError()));
+            throw new GLException("Error creating OpenGL context: eglDisplay "+toHexString(eglDisplay)+
+                                  ", eglConfig "+config+", "+glProfile+", shareWith "+toHexString(shareWithHandle)+", error "+toHexString(EGL.eglGetError()));
         }
-        GLContextShareSet.contextCreated(this);
         if (DEBUG) {
             System.err.println(getThreadName() + ": !!! Created OpenGL context 0x" +
                                Long.toHexString(contextHandle) + 
                                ",\n\twrite surface 0x" + Long.toHexString(drawable.getHandle()) +
                                ",\n\tread  surface 0x" + Long.toHexString(drawableRead.getHandle())+
                                ",\n\t"+this+
-                               ",\n\tsharing with 0x" + Long.toHexString(shareWith));
+                               ",\n\tsharing with 0x" + Long.toHexString(shareWithHandle));
         }
         if (!EGL.eglMakeCurrent(((EGLDrawable)drawable).getDisplay(),
                                 drawable.getHandle(),
@@ -189,14 +201,22 @@ public abstract class EGLContext extends GLContextImpl {
             throw new GLException("Error making context 0x" +
                                   Long.toHexString(contextHandle) + " current: error code " + EGL.eglGetError());
         }
-        setGLFunctionAvailability(true, glProfile.usesNativeGLES2()?2:1, 0, CTX_PROFILE_ES|CTX_OPTION_ANY);
+        int ctp = CTX_PROFILE_ES|CTX_OPTION_ANY;
+        int major;
+        if(glProfile.usesNativeGLES2()) {
+            ctp |= CTX_PROFILE_ES2_COMPAT;
+            major = 2;
+        } else {            
+            major = 1;
+        }
+        setGLFunctionAvailability(true, major, 0, ctp);
         return true;
     }
 
     protected final void updateGLXProcAddressTable() {
-        AbstractGraphicsConfiguration aconfig = drawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration();
-        AbstractGraphicsDevice adevice = aconfig.getScreen().getDevice();
-        String key = adevice.getUniqueID();
+        final AbstractGraphicsConfiguration aconfig = drawable.getNativeSurface().getGraphicsConfiguration();
+        final AbstractGraphicsDevice adevice = aconfig.getScreen().getDevice();
+        final String key = "EGL-"+adevice.getUniqueID();
         if (DEBUG) {
           System.err.println(getThreadName() + ": !!! Initializing EGLextension address table: "+key);
         }
@@ -228,22 +248,22 @@ public abstract class EGLContext extends GLContextImpl {
         }
     }
   
-    public synchronized String getPlatformExtensionsString() {
+    protected final StringBuffer getPlatformExtensionsStringImpl() {
+        StringBuffer sb = new StringBuffer();        
         if (!eglQueryStringInitialized) {
           eglQueryStringAvailable =
             getDrawableImpl().getGLDynamicLookupHelper().dynamicLookupFunction("eglQueryString") != 0;
           eglQueryStringInitialized = true;
         }
         if (eglQueryStringAvailable) {
-            String ret = EGL.eglQueryString(((EGLDrawable)drawable).getDisplay(), 
-                                            EGL.EGL_EXTENSIONS);
+            final String ret = EGL.eglQueryString(((EGLDrawable)drawable).getDisplay(), 
+                                                  EGL.EGL_EXTENSIONS);
             if (DEBUG) {
               System.err.println("!!! EGL extensions: " + ret);
             }
-            return ret;
-        } else {
-          return "";
+            sb.append(ret);
         }
+        return sb;
     }
 
     protected void setSwapIntervalImpl(int interval) {

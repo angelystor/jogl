@@ -39,31 +39,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#ifdef _WIN32
-    /* This typedef is apparently needed for Microsoft compilers before VC8,
-       and on Windows CE */
-    #if !defined(__MINGW64__) && ( defined(UNDER_CE) || _MSC_VER <= 1400 )
-        #ifdef _WIN64
-            typedef long long intptr_t;
-        #else
-            typedef int intptr_t;
-        #endif
-    #elif !defined(__MINGW64__) && _MSC_VER <= 1500
-        #ifdef _WIN64 // [
-            typedef __int64           intptr_t;
-        #else // _WIN64 ][
-            typedef int               intptr_t;
-        #endif // _WIN64 ]
-    #else
-        #include <inttypes.h>
-    #endif
-#else
-    #include <inttypes.h>
-#endif
+#include <gluegen_stdint.h>
 
 #include <KD/kd.h>
 
-#include "jogamp_newt_opengl_kd_KDWindow.h"
+#include "jogamp_newt_driver_kd_KDWindow.h"
 
 #include "MouseEvent.h"
 #include "KeyEvent.h"
@@ -101,7 +81,7 @@ static jmethodID sendKeyEventID = NULL;
  * Display
  */
 
-JNIEXPORT void JNICALL Java_jogamp_newt_opengl_kd_KDDisplay_DispatchMessages
+JNIEXPORT void JNICALL Java_jogamp_newt_driver_kd_KDDisplay_DispatchMessages
   (JNIEnv *env, jobject obj)
 {
     const KDEvent * evt;
@@ -147,7 +127,7 @@ JNIEXPORT void JNICALL Java_jogamp_newt_opengl_kd_KDDisplay_DispatchMessages
                                 KDint32 v[2];
                                 if(!kdGetWindowPropertyiv(kdWindow, KD_WINDOWPROPERTY_SIZE, v)) {
                                     DBG_PRINT( "event window size change : src: %p %dx%d\n", userData, v[0], v[1]);
-                                    (*env)->CallVoidMethod(env, javaWindow, sizeChangedID, (jint) v[0], (jint) v[1], JNI_FALSE);
+                                    (*env)->CallVoidMethod(env, javaWindow, sizeChangedID, JNI_FALSE, (jint) v[0], (jint) v[1], JNI_FALSE);
                                 } else {
                                     DBG_PRINT( "event window size change error: src: %p %dx%d\n", userData, v[0], v[1]);
                                 }
@@ -161,7 +141,7 @@ JNIEXPORT void JNICALL Java_jogamp_newt_opengl_kd_KDDisplay_DispatchMessages
                                 KDboolean visible;
                                 kdGetWindowPropertybv(kdWindow, KD_WINDOWPROPERTY_VISIBILITY, &visible);
                                 DBG_PRINT( "event window visibility: src: %p, v:%d\n", userData, visible);
-                                (*env)->CallVoidMethod(env, javaWindow, visibleChangedID, visible?JNI_TRUE:JNI_FALSE);
+                                (*env)->CallVoidMethod(env, javaWindow, visibleChangedID, JNI_FALSE, visible?JNI_TRUE:JNI_FALSE);
                             }
                             break;
                         default:
@@ -197,7 +177,7 @@ JNIEXPORT void JNICALL Java_jogamp_newt_opengl_kd_KDDisplay_DispatchMessages
  * Window
  */
 
-JNIEXPORT jboolean JNICALL Java_jogamp_newt_opengl_kd_KDWindow_initIDs
+JNIEXPORT jboolean JNICALL Java_jogamp_newt_driver_kd_KDWindow_initIDs
   (JNIEnv *env, jclass clazz)
 {
 #ifdef VERBOSE_ON
@@ -207,8 +187,8 @@ JNIEXPORT jboolean JNICALL Java_jogamp_newt_opengl_kd_KDWindow_initIDs
     #endif
 #endif
     windowCreatedID = (*env)->GetMethodID(env, clazz, "windowCreated", "(J)V");
-    sizeChangedID = (*env)->GetMethodID(env, clazz, "sizeChanged", "(IIZ)V");
-    visibleChangedID = (*env)->GetMethodID(env, clazz, "visibleChanged", "(Z)V");
+    sizeChangedID = (*env)->GetMethodID(env, clazz, "sizeChanged", "(ZIIZ)V");
+    visibleChangedID = (*env)->GetMethodID(env, clazz, "visibleChanged", "(ZZ)V");
     windowDestroyNotifyID = (*env)->GetMethodID(env, clazz, "windowDestroyNotify",    "()V");
     sendMouseEventID = (*env)->GetMethodID(env, clazz, "sendMouseEvent", "(IIIIII)V");
     sendKeyEventID = (*env)->GetMethodID(env, clazz, "sendKeyEvent", "(IIIC)V");
@@ -225,7 +205,7 @@ JNIEXPORT jboolean JNICALL Java_jogamp_newt_opengl_kd_KDWindow_initIDs
     return JNI_TRUE;
 }
 
-JNIEXPORT jlong JNICALL Java_jogamp_newt_opengl_kd_KDWindow_CreateWindow
+JNIEXPORT jlong JNICALL Java_jogamp_newt_driver_kd_KDWindow_CreateWindow
   (JNIEnv *env, jobject obj, jlong display, jintArray jAttrs)
 {
     jint * attrs = NULL;
@@ -267,7 +247,7 @@ JNIEXPORT jlong JNICALL Java_jogamp_newt_opengl_kd_KDWindow_CreateWindow
     return (jlong) (intptr_t) window;
 }
 
-JNIEXPORT jlong JNICALL Java_jogamp_newt_opengl_kd_KDWindow_RealizeWindow
+JNIEXPORT jlong JNICALL Java_jogamp_newt_driver_kd_KDWindow_RealizeWindow
   (JNIEnv *env, jobject obj, jlong window)
 {
     KDWindow *w = (KDWindow*) (intptr_t) window;
@@ -276,13 +256,13 @@ JNIEXPORT jlong JNICALL Java_jogamp_newt_opengl_kd_KDWindow_RealizeWindow
     jint res = kdRealizeWindow(w, &nativeWindow);
     if(res) {
         fprintf(stderr, "[RealizeWindow] failed: 0x%X, 0x%X\n", res, kdGetError());
-        nativeWindow = NULL;
+        nativeWindow = 0;
     }
     DBG_PRINT( "[RealizeWindow] ok: %p\n", nativeWindow);
     return (jlong) (intptr_t) nativeWindow;
 }
 
-JNIEXPORT jint JNICALL Java_jogamp_newt_opengl_kd_KDWindow_CloseWindow
+JNIEXPORT jint JNICALL Java_jogamp_newt_driver_kd_KDWindow_CloseWindow
   (JNIEnv *env, jobject obj, jlong window, jlong juserData)
 {
     KDWindow *w = (KDWindow*) (intptr_t) window;
@@ -296,21 +276,21 @@ JNIEXPORT jint JNICALL Java_jogamp_newt_opengl_kd_KDWindow_CloseWindow
 }
 
 /*
- * Class:     jogamp_newt_opengl_kd_KDWindow
+ * Class:     jogamp_newt_driver_kd_KDWindow
  * Method:    setVisible0
  * Signature: (JJZ)V
  */
-JNIEXPORT void JNICALL Java_jogamp_newt_opengl_kd_KDWindow_setVisible0
+JNIEXPORT void JNICALL Java_jogamp_newt_driver_kd_KDWindow_setVisible0
   (JNIEnv *env, jobject obj, jlong window, jboolean visible)
 {
     KDWindow *w = (KDWindow*) (intptr_t) window;
     KDboolean v = (visible==JNI_TRUE)?KD_TRUE:KD_FALSE;
     kdSetWindowPropertybv(w, KD_WINDOWPROPERTY_VISIBILITY, &v);
     DBG_PRINT( "[setVisible] v=%d\n", visible);
-    (*env)->CallVoidMethod(env, obj, visibleChangedID, visible); // FIXME: or send via event ?
+    (*env)->CallVoidMethod(env, obj, visibleChangedID, JNI_FALSE, visible); // FIXME: or defer=true ?
 }
 
-JNIEXPORT void JNICALL Java_jogamp_newt_opengl_kd_KDWindow_setFullScreen0
+JNIEXPORT void JNICALL Java_jogamp_newt_driver_kd_KDWindow_setFullScreen0
   (JNIEnv *env, jobject obj, jlong window, jboolean fullscreen)
 {
 /** not supported, due to missing NV property ..
@@ -327,7 +307,7 @@ JNIEXPORT void JNICALL Java_jogamp_newt_opengl_kd_KDWindow_setFullScreen0
     (void)fullscreen;
 }
 
-JNIEXPORT void JNICALL Java_jogamp_newt_opengl_kd_KDWindow_setSize0
+JNIEXPORT void JNICALL Java_jogamp_newt_driver_kd_KDWindow_setSize0
   (JNIEnv *env, jobject obj, jlong window, jint width, jint height)
 {
     KDWindow *w = (KDWindow*) (intptr_t) window;
@@ -337,6 +317,6 @@ JNIEXPORT void JNICALL Java_jogamp_newt_opengl_kd_KDWindow_setSize0
     DBG_PRINT( "[setSize] v=%dx%d, res=%d\n", width, height, res);
     (void)res;
 
-    (*env)->CallVoidMethod(env, obj, sizeChangedID, (jint) width, (jint) height, JNI_FALSE);
+    (*env)->CallVoidMethod(env, obj, sizeChangedID, JNI_FALSE, (jint) width, (jint) height, JNI_FALSE);
 }
 

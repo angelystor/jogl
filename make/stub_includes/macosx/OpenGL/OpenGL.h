@@ -2,10 +2,13 @@
    OpenGL.h to expose portions of the low-level CGL API to Java */
 
 /* Typedefs to get things working */
-typedef struct _cglObj* CGLContextObj;
-typedef struct _cglObj* CGLShareGroupObj;
-typedef struct _cglObj* CGLPBufferObj;
-typedef struct _cglObj* CGLPixelFormatObj;
+typedef struct _cglContextObj*     CGLContextObj;
+typedef struct _cglPBufferObj*     CGLPBufferObj;
+typedef struct _cglPixelFormatObj* CGLPixelFormatObj;
+
+typedef int             GLint;          /* 4-byte signed */
+typedef unsigned int    GLenum;
+typedef int             GLsizei;        /* 4-byte signed */
 
 /*
 ** Attribute names for CGLChoosePixelFormat and CGLDescribePixelFormat.
@@ -45,9 +48,19 @@ typedef enum _CGLPixelFormatAttribute {
 	kCGLPFACompliant          =  83,	/* renderer is opengl compliant                 */
 	kCGLPFADisplayMask        =  84,	/* mask limiting supported displays             */
 	kCGLPFAPBuffer            =  90,	/* can be used to render to a pbuffer           */
-        kCGLPFARemotePBuffer	  =  91,    /* can be used to render offline to a pbuffer	*/
+    kCGLPFARemotePBuffer	  =  91,    /* can be used to render offline to a pbuffer	*/
+    kCGLPFAAcceleratedCompute =  97,    /* hardware accelerated                         */
+    kCGLPFAOpenGLProfile      =  99,    /* OpenGL Profile                               */
 	kCGLPFAVirtualScreenCount = 128 	/* number of virtual screens in this format     */
 } CGLPixelFormatAttribute;
+
+/**
+ * OpenGL Profiles Values
+ */
+typedef enum _CGLOpenGLProfile {
+    kCGLOGLPVersion_Legacy   = 0x1000,      /* Legacy/Pre-OpenGL 3.0 */
+    kCGLOGLPVersion_3_2_Core = 0x3200       /* OpenGL 3.2 Core */
+} CGLOpenGLProfile;
 
 /*
 ** Error return values from CGLGetError.
@@ -95,7 +108,7 @@ typedef enum _CGLContextParameter {
 /* Pixel format manipulation */
 CGLError CGLChoosePixelFormat(const CGLPixelFormatAttribute *attribs,
                               CGLPixelFormatObj *pix,
-                              long *npix);
+                              GLint *npix);
 CGLError CGLDestroyPixelFormat(CGLPixelFormatObj pix);
 CGLPixelFormatObj CGLGetPixelFormat ( CGLContextObj ctx );
 
@@ -105,6 +118,8 @@ CGLError CGLCreateContext(CGLPixelFormatObj pix,
                           CGLContextObj* ctx);
 void CGLReleaseContext(CGLContextObj ctx);
 CGLError CGLDestroyContext(CGLContextObj ctx);
+CGLError CGLLockContext (CGLContextObj ctx);
+CGLError CGLUnlockContext (CGLContextObj ctx);
 CGLError CGLSetCurrentContext(CGLContextObj ctx);
 CGLContextObj CGLGetCurrentContext (void);
 CGLError CGLFlushDrawable ( CGLContextObj ctx);
@@ -113,16 +128,16 @@ CGLError CGLCopyContext ( CGLContextObj src, CGLContextObj dst, int mask );
 
 CGLShareGroupObj CGLGetShareGroup(CGLContextObj ctx);
 
-/* PBuffer manipulation */
-CGLError CGLCreatePBuffer(long width,
-                          long height,
-                          unsigned long target,
-                          unsigned long internalFormat,
-                          long max_level,
+/* PBuffer manipulation (deprecated in 10.7) */
+CGLError CGLCreatePBuffer(GLsizei width,
+                          GLsizei height,
+                          GLenum target,
+                          GLenum internalFormat,
+                          GLint max_level,
                           CGLPBufferObj* pbuffer);
 CGLError CGLDestroyPBuffer(CGLPBufferObj pbuffer);
 CGLError CGLSetPBuffer(CGLContextObj ctx,
                        CGLPBufferObj pbuffer,
-                       unsigned long face,
-                       long level,
-                       long screen);
+                       GLenum face,
+                       GLint level,
+                       GLint screen);

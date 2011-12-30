@@ -35,20 +35,20 @@ import javax.media.opengl.GLProfile;
 import java.util.Comparator;
 
 public class X11GLCapabilities extends GLCapabilities {
-  XVisualInfo xVisualInfo; // maybe null if !onscreen
-  long fbcfg;
-  int  fbcfgid;
+  final XVisualInfo xVisualInfo; // maybe null if !onscreen
+  final long fbcfg;
+  final int  fbcfgid;
 
   /** Comparing xvisual id only */
   public static class XVisualIDComparator implements Comparator {
 
       public int compare(Object o1, Object o2) {
         if ( ! ( o1 instanceof X11GLCapabilities ) ) {
-            Class c = (null != o1) ? o1.getClass() : null ;
+            Class<?> c = (null != o1) ? o1.getClass() : null ;
             throw new ClassCastException("arg1 not a X11GLCapabilities object: " + c);
         }
         if ( ! ( o2 instanceof X11GLCapabilities ) ) {
-            Class c = (null != o2) ? o2.getClass() : null ;
+            Class<?> c = (null != o2) ? o2.getClass() : null ;
             throw new ClassCastException("arg2 not a X11GLCapabilities object: " + c);
         }
 

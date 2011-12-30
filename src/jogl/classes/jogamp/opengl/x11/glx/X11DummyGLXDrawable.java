@@ -50,16 +50,16 @@ public class X11DummyGLXDrawable extends X11OnscreenGLXDrawable {
     this.realized = true;
 
     WrappedSurface ns = (WrappedSurface) getNativeSurface();
-    X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)ns.getGraphicsConfiguration().getNativeGraphicsConfiguration();
+    X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)ns.getGraphicsConfiguration();
 
     X11GraphicsDevice device = (X11GraphicsDevice) screen.getDevice();
     long dpy = device.getHandle();
     int scrn = screen.getIndex();
     long visualID = config.getVisualID();
 
-    dummyWindow = X11Util.CreateDummyWindow(dpy, scrn, visualID, f_dim, f_dim);
+    dummyWindow = X11Lib.CreateDummyWindow(dpy, scrn, visualID, f_dim, f_dim);
     ns.setSurfaceHandle( dummyWindow );
-    ns.setSize(f_dim, f_dim);
+    ns.surfaceSizeChanged(f_dim, f_dim);
 
     updateHandle();
   }
@@ -83,8 +83,8 @@ public class X11DummyGLXDrawable extends X11OnscreenGLXDrawable {
   protected void destroyImpl() {
     if(0!=dummyWindow) {
         destroyHandle();
-        X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration();
-        X11Util.DestroyDummyWindow(config.getScreen().getDevice().getHandle(), dummyWindow);
+        X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)getNativeSurface().getGraphicsConfiguration();
+        X11Lib.DestroyDummyWindow(config.getScreen().getDevice().getHandle(), dummyWindow);
     }
   }
 }

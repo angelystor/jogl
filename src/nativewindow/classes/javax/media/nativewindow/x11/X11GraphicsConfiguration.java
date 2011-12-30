@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2008 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright (c) 2010 JogAmp Community. All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -32,8 +33,9 @@
 
 package javax.media.nativewindow.x11;
 
-import javax.media.nativewindow.*;
+import javax.media.nativewindow.CapabilitiesImmutable;
 
+import jogamp.nativewindow.MutableGraphicsConfiguration;
 import jogamp.nativewindow.x11.XVisualInfo;
 
 /** Encapsulates a graphics configuration, or OpenGL pixel format, on
@@ -42,7 +44,7 @@ import jogamp.nativewindow.x11.XVisualInfo;
     GraphicsConfigurationFactory.chooseGraphicsConfiguration()} on X11
     platforms when toolkits other than the AWT are being used.  */
 
-public class X11GraphicsConfiguration extends DefaultGraphicsConfiguration implements Cloneable {
+public class X11GraphicsConfiguration extends MutableGraphicsConfiguration implements Cloneable {
     private XVisualInfo info;
 
     public X11GraphicsConfiguration(X11GraphicsScreen screen, 

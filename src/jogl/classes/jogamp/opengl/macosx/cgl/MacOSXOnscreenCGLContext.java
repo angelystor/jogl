@@ -39,8 +39,10 @@
 
 package jogamp.opengl.macosx.cgl;
 
+import javax.media.opengl.GLContext;
+import javax.media.opengl.GLException;
 
-import javax.media.opengl.*;
+import jogamp.opengl.GLContextImpl;
 
 public class MacOSXOnscreenCGLContext extends MacOSXCGLContext {
 
@@ -49,42 +51,54 @@ public class MacOSXOnscreenCGLContext extends MacOSXCGLContext {
     super(drawable, shareWith);
   }
 
-    @Override
-  protected void makeCurrentImpl(boolean newCreated) throws GLException {
-      super.makeCurrentImpl(newCreated);
-      CGL.updateContext(contextHandle);
+  @Override
+  protected void makeCurrentImpl() throws GLException {
+      super.makeCurrentImpl();
+      drawableUpdatedNotify();  
   }
     
-    @Override
-  protected void releaseImpl() throws GLException {
-    super.releaseImpl();
-  }
-
-    @Override
-  protected void swapBuffers() {
-    if (!CGL.flushBuffer(contextHandle)) {
-      throw new GLException("Error swapping buffers");
+  @Override
+  protected void drawableUpdatedNotify() throws GLException {
+    final int w = drawable.getWidth();
+    final int h = drawable.getHeight();
+    final boolean updateContext = ( 0!=updateHandle && CGL.updateContextNeedsUpdate(updateHandle) ) ||
+                                  w != lastWidth || h != lastHeight;
+    if(updateContext) {
+        lastWidth = w;
+        lastHeight = h;
+        if (contextHandle == 0) {
+          throw new GLException("Context not created");
+        }
+        CGL.updateContext(contextHandle);
     }
   }
-
-    @Override
-  protected void update() throws GLException {
-    if (contextHandle == 0) {
-      throw new GLException("Context not created");
+  
+  @Override
+  protected boolean createImpl(GLContextImpl sharedWith) {
+    boolean res = super.createImpl(sharedWith);
+    lastWidth = -1; 
+    lastHeight = -1;    
+    if(res && isNSContext()) {
+        if(0 != updateHandle) {
+            throw new InternalError("XXX1");
+        }
+        updateHandle = CGL.updateContextRegister(contextHandle, drawable.getHandle());
+        if(0 == updateHandle) {
+            throw new InternalError("XXX2");
+        }
     }
-    CGL.updateContext(contextHandle);
+    return res;
   }
 
-  protected boolean createImpl() {
-    return create(false, false);
+  @Override
+  protected void destroyImpl() throws GLException {
+    if ( 0 != updateHandle ) {
+        CGL.updateContextUnregister(updateHandle);
+        updateHandle = 0;
+    }
+    super.destroyImpl();    
   }
-
-  public void setOpenGLMode(int mode) {
-    if (mode != MacOSXCGLDrawable.NSOPENGL_MODE)
-      throw new GLException("OpenGL mode switching not supported for on-screen GLContexts");
-  }
-    
-  public int  getOpenGLMode() {
-    return MacOSXCGLDrawable.NSOPENGL_MODE;
-  }
+  
+  private long updateHandle = 0;
+  private int lastWidth, lastHeight;
 }

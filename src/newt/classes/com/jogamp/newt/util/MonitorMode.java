@@ -33,37 +33,30 @@ import javax.media.nativewindow.util.*;
 /** Immutable MonitorMode Class, consisting of it's read only components:<br>
  * <ul>
  *  <li>{@link javax.media.nativewindow.util.SurfaceSize} surface memory size</li>
- *  <li>{@link javax.media.nativewindow.util.DimensionReadOnly} size in [mm]</li>
+ *  <li>{@link javax.media.nativewindow.util.DimensionImmutable} size in [mm]</li>
  *  <li><code>refresh rate</code></li>
  * </ul>
  */
-public class MonitorMode  implements Cloneable {
+public class MonitorMode {
     SurfaceSize surfaceSize;
-    DimensionReadOnly screenSizeMM; // in [mm]
+    DimensionImmutable screenSizeMM; // in [mm]
     int refreshRate;
 
-    public MonitorMode(SurfaceSize surfaceSize, DimensionReadOnly screenSizeMM, int refreshRate) {
-        if(null==surfaceSize || refreshRate<=0) {
-            throw new IllegalArgumentException("surfaceSize must be set and refreshRate greater 0");
+    public MonitorMode(SurfaceSize surfaceSize, DimensionImmutable screenSizeMM, int refreshRate) {
+        // Don't validate screenSizeMM and refreshRate, since they may not be supported by the OS 
+        if(null==surfaceSize) {
+            throw new IllegalArgumentException("surfaceSize must be set ("+surfaceSize+")");
         }
         this.surfaceSize=surfaceSize;
         this.screenSizeMM=screenSizeMM;
         this.refreshRate=refreshRate;
     }
 
-    public Object clone() {
-        try {
-            return super.clone();
-        } catch (CloneNotSupportedException ex) {
-            throw new InternalError();
-        }
-    }
-
     public final SurfaceSize getSurfaceSize() {
         return surfaceSize;
     }
 
-    public final DimensionReadOnly getScreenSizeMM() {
+    public final DimensionImmutable getScreenSizeMM() {
         return screenSizeMM;
     }
 

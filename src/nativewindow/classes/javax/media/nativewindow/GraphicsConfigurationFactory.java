@@ -40,7 +40,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
-
 /**
  * Provides the mechanism by which the graphics configuration for a
  * window can be chosen before the window is created. The graphics 
@@ -60,12 +59,34 @@ import java.util.Map;
 public abstract class GraphicsConfigurationFactory {
     protected static final boolean DEBUG = Debug.debug("GraphicsConfiguration");
 
-    private static Map/*<Class, NativeWindowFactory>*/ registeredFactories =
-        Collections.synchronizedMap(new HashMap());
-    private static Class abstractGraphicsDeviceClass;
+    private static Map<Class<?>, GraphicsConfigurationFactory> registeredFactories =
+        Collections.synchronizedMap(new HashMap<Class<?>, GraphicsConfigurationFactory>());
+    private static Class<?> abstractGraphicsDeviceClass;
 
     static {
-        initialize();
+        abstractGraphicsDeviceClass = javax.media.nativewindow.AbstractGraphicsDevice.class;
+        
+        // Register the default no-op factory for arbitrary
+        // AbstractGraphicsDevice implementations, including
+        // AWTGraphicsDevice instances -- the OpenGL binding will take
+        // care of handling AWTGraphicsDevices on X11 platforms (as
+        // well as X11GraphicsDevices in non-AWT situations)
+        registerFactory(abstractGraphicsDeviceClass, new DefaultGraphicsConfigurationFactoryImpl());
+        
+        if (NativeWindowFactory.TYPE_X11.equals(NativeWindowFactory.getNativeWindowType(true))) {
+            try {
+                ReflectionUtil.callStaticMethod("jogamp.nativewindow.x11.X11GraphicsConfigurationFactory", 
+                                                "registerFactory", null, null, GraphicsConfigurationFactory.class.getClassLoader());                
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+            if(NativeWindowFactory.isAWTAvailable()) {
+                try {
+                    ReflectionUtil.callStaticMethod("jogamp.nativewindow.x11.awt.X11AWTGraphicsConfigurationFactory", 
+                                                    "registerFactory", null, null, GraphicsConfigurationFactory.class.getClassLoader());                
+                } catch (Exception e) { /* n/a */ }
+            }
+        }
     }
 
     protected static String getThreadName() {
@@ -85,27 +106,6 @@ public abstract class GraphicsConfigurationFactory {
     protected GraphicsConfigurationFactory() {
     }
 
-    private static void initialize() {
-        abstractGraphicsDeviceClass = javax.media.nativewindow.AbstractGraphicsDevice.class;
-        
-        if (NativeWindowFactory.TYPE_X11.equals(NativeWindowFactory.getNativeWindowType(true))) {
-            try {
-                GraphicsConfigurationFactory factory = (GraphicsConfigurationFactory)
-                    ReflectionUtil.createInstance("jogamp.nativewindow.x11.X11GraphicsConfigurationFactory", null,
-                                                  GraphicsConfigurationFactory.class.getClassLoader());
-                registerFactory(javax.media.nativewindow.x11.X11GraphicsDevice.class, factory);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        }
-        // Register the default no-op factory for arbitrary
-        // AbstractGraphicsDevice implementations, including
-        // AWTGraphicsDevice instances -- the OpenGL binding will take
-        // care of handling AWTGraphicsDevices on X11 platforms (as
-        // well as X11GraphicsDevices in non-AWT situations)
-        registerFactory(abstractGraphicsDeviceClass, new DefaultGraphicsConfigurationFactoryImpl());
-    }
-
     /** Returns the factory for use with the given type of
         AbstractGraphicsDevice. */
     public static GraphicsConfigurationFactory getFactory(AbstractGraphicsDevice device) {
@@ -122,7 +122,7 @@ public abstract class GraphicsConfigurationFactory {
      *
      * @throws IllegalArgumentException if the given class does not implement AbstractGraphicsDevice
      */
-    public static GraphicsConfigurationFactory getFactory(Class abstractGraphicsDeviceImplementor)
+    public static GraphicsConfigurationFactory getFactory(Class<?> abstractGraphicsDeviceImplementor)
         throws IllegalArgumentException, NativeWindowException
     {
         if (!(abstractGraphicsDeviceClass.isAssignableFrom(abstractGraphicsDeviceImplementor))) {
@@ -130,10 +130,9 @@ public abstract class GraphicsConfigurationFactory {
         }
 
         GraphicsConfigurationFactory factory = null;
-        Class clazz = abstractGraphicsDeviceImplementor;
+        Class<?> clazz = abstractGraphicsDeviceImplementor;
         while (clazz != null) {
-            factory =
-                (GraphicsConfigurationFactory) registeredFactories.get(clazz);
+            factory = registeredFactories.get(clazz);
             if (factory != null) {
                 if(DEBUG) {
                     System.err.println("GraphicsConfigurationFactory.getFactory() "+abstractGraphicsDeviceImplementor+" -> "+factory);
@@ -143,7 +142,7 @@ public abstract class GraphicsConfigurationFactory {
             clazz = clazz.getSuperclass();
         }
         // Return the default
-        factory = (GraphicsConfigurationFactory)registeredFactories.get(abstractGraphicsDeviceClass);
+        factory = registeredFactories.get(abstractGraphicsDeviceClass);
         if(DEBUG) {
             System.err.println("GraphicsConfigurationFactory.getFactory() DEFAULT "+abstractGraphicsDeviceClass+" -> "+factory);
         }
@@ -157,7 +156,7 @@ public abstract class GraphicsConfigurationFactory {
      *
      * @throws IllegalArgumentException if the given class does not implement AbstractGraphicsDevice
      */
-    protected static void registerFactory(Class abstractGraphicsDeviceImplementor, GraphicsConfigurationFactory factory)
+    protected static void registerFactory(Class<?> abstractGraphicsDeviceImplementor, GraphicsConfigurationFactory factory)
         throws IllegalArgumentException
     {
         if (!(abstractGraphicsDeviceClass.isAssignableFrom(abstractGraphicsDeviceImplementor))) {

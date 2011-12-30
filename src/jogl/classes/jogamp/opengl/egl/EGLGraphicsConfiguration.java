@@ -36,14 +36,27 @@
 
 package jogamp.opengl.egl;
 
+import java.nio.IntBuffer;
 import java.util.ArrayList;
-import javax.media.nativewindow.*;
-import javax.media.nativewindow.egl.*;
-import javax.media.opengl.*;
-import com.jogamp.common.nio.PointerBuffer;
-import jogamp.opengl.*;
 
-public class EGLGraphicsConfiguration extends DefaultGraphicsConfiguration implements Cloneable {
+import javax.media.nativewindow.AbstractGraphicsDevice;
+import javax.media.nativewindow.AbstractGraphicsScreen;
+import javax.media.nativewindow.GraphicsConfigurationFactory;
+import javax.media.nativewindow.egl.EGLGraphicsDevice;
+import javax.media.opengl.DefaultGLCapabilitiesChooser;
+import javax.media.opengl.GLCapabilitiesChooser;
+import javax.media.opengl.GLCapabilitiesImmutable;
+import javax.media.opengl.GLException;
+import javax.media.opengl.GLProfile;
+
+import jogamp.nativewindow.MutableGraphicsConfiguration;
+import jogamp.opengl.Debug;
+import jogamp.opengl.GLGraphicsConfigurationUtil;
+
+import com.jogamp.common.nio.Buffers;
+import com.jogamp.common.nio.PointerBuffer;
+
+public class EGLGraphicsConfiguration extends MutableGraphicsConfiguration implements Cloneable {
     protected static final boolean DEBUG = Debug.debug("GraphicsConfiguration");
 
     public final long getNativeConfig() {
@@ -72,6 +85,7 @@ public class EGLGraphicsConfiguration extends DefaultGraphicsConfiguration imple
         GLProfile glp = capsRequested.getGLProfile();
         long cfg = EGLConfigId2EGLConfig(glp, dpy, cfgID);
         EGLGLCapabilities caps = EGLConfig2Capabilities(glp, dpy, cfg, false, capsRequested.isOnscreen(), capsRequested.isPBuffer());
+        caps = (EGLGLCapabilities) GLGraphicsConfigurationUtil.fixOpaqueGLCapabilities(caps, capsRequested.isBackgroundOpaque()); // FIXME: valid to override EGL transparency ?
         return new EGLGraphicsConfiguration(absScreen, caps, capsRequested, new DefaultGLCapabilitiesChooser());
     }
 
@@ -79,7 +93,7 @@ public class EGLGraphicsConfiguration extends DefaultGraphicsConfiguration imple
     public Object clone() {
         return super.clone();
     }
-
+        
     void updateGraphicsConfiguration() {
         EGLGraphicsConfiguration newConfig = (EGLGraphicsConfiguration)
             GraphicsConfigurationFactory.getFactory(getScreen().getDevice()).chooseGraphicsConfiguration(
@@ -88,7 +102,7 @@ public class EGLGraphicsConfiguration extends DefaultGraphicsConfiguration imple
             // FIXME: setScreen( ... );
             setChosenCapabilities(newConfig.getChosenCapabilities());
             if(DEBUG) {
-                System.err.println("!!! updateGraphicsConfiguration: "+this);
+                System.err.println("!!! updateGraphicsConfiguration(1): "+this);
             }
         }
     }
@@ -134,7 +148,7 @@ public class EGLGraphicsConfiguration extends DefaultGraphicsConfiguration imple
     }
 
     public static EGLGLCapabilities EGLConfig2Capabilities(GLProfile glp, long display, long config,
-                                                                 boolean relaxed, boolean onscreen, boolean usePBuffer) {
+                                                           boolean relaxed, boolean onscreen, boolean usePBuffer) {
         ArrayList bucket = new ArrayList();
         final int winattrmask = GLGraphicsConfigurationUtil.getWinAttributeBits(onscreen, usePBuffer);
         if( EGLConfig2Capabilities(bucket, glp, display, config, winattrmask) ) {
@@ -155,57 +169,91 @@ public class EGLGraphicsConfiguration extends DefaultGraphicsConfiguration imple
             return false;
         }
 
-        int[] val = new int[1];
-
+        final IntBuffer val = Buffers.newDirectIntBuffer(1);
+        final int cfgID;
+        final int rType;
+        
         // get the configID
-        if(!EGL.eglGetConfigAttrib(display, config, EGL.EGL_CONFIG_ID, val, 0)) {
+        if(!EGL.eglGetConfigAttrib(display, config, EGL.EGL_CONFIG_ID, val)) {
             if(DEBUG) {
                 // FIXME: this happens on a ATI PC Emulation ..
                 System.err.println("EGL couldn't retrieve ConfigID for config "+toHexString(config)+", error "+toHexString(EGL.eglGetError()));
             }
             return false;
         }
-        GLCapabilities caps = new EGLGLCapabilities(config, val[0], glp);
-
-        // Read the actual configuration into the choosen caps
-        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_RED_SIZE, val, 0)) {
-            caps.setRedBits(val[0]);
+        cfgID = val.get(0);
+        
+        if(!EGL.eglGetConfigAttrib(display, config, EGL.EGL_RENDERABLE_TYPE, val)) {
+            if(DEBUG) {
+                System.err.println("EGL couldn't retrieve EGL_RENDERABLE_TYPE for config "+toHexString(config)+", error "+toHexString(EGL.eglGetError()));
+            }
+            return false;
         }
-        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_GREEN_SIZE, val, 0)) {
-            caps.setGreenBits(val[0]);
+        rType = val.get(0);
+        
+        EGLGLCapabilities caps = null;        
+        try {
+            caps = new EGLGLCapabilities(config, cfgID, glp, rType);
+        } catch (GLException gle) {
+            if(DEBUG) {
+                System.err.println("config "+toHexString(config)+": "+gle);
+            }
+            return false;
+        }        
+                
+        // Read the actual configuration into the chosen caps
+        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_NATIVE_VISUAL_ID, val)) {
+            caps.setNativeVisualID(val.get(0));
+        }                
+        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_RED_SIZE, val)) {
+            caps.setRedBits(val.get(0));
         }
-        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_BLUE_SIZE, val, 0)) {
-            caps.setBlueBits(val[0]);
+        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_GREEN_SIZE, val)) {
+            caps.setGreenBits(val.get(0));
         }
-        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_ALPHA_SIZE, val, 0)) {
-            caps.setAlphaBits(val[0]);
+        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_BLUE_SIZE, val)) {
+            caps.setBlueBits(val.get(0));
         }
-        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_STENCIL_SIZE, val, 0)) {
-            caps.setStencilBits(val[0]);
+        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_ALPHA_SIZE, val)) {
+            caps.setAlphaBits(val.get(0));
         }
-        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_DEPTH_SIZE, val, 0)) {
-            caps.setDepthBits(val[0]);
+        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_STENCIL_SIZE, val)) {
+            caps.setStencilBits(val.get(0));
         }
-        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_SAMPLES, val, 0)) {
-            caps.setSampleBuffers(val[0]>0?true:false);
-            caps.setNumSamples(val[0]);
+        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_DEPTH_SIZE, val)) {
+            caps.setDepthBits(val.get(0));
         }
-        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_TRANSPARENT_TYPE, val, 0)) {
-            caps.setBackgroundOpaque(val[0] != EGL.EGL_TRANSPARENT_RGB);
+        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_SAMPLES, val)) {
+            caps.setSampleBuffers(val.get(0)>0?true:false);
+            caps.setNumSamples(val.get(0));
+        }
+        if(!caps.getSampleBuffers()) {
+            // try NV_coverage_sample extension 
+            if(EGL.eglGetConfigAttrib(display, config, EGLExt.EGL_COVERAGE_BUFFERS_NV, val)) {
+                if(val.get(0)>0 &&
+                   EGL.eglGetConfigAttrib(display, config, EGLExt.EGL_COVERAGE_SAMPLES_NV, val)) {
+                    caps.setSampleExtension(GLGraphicsConfigurationUtil.NV_coverage_sample); 
+                    caps.setSampleBuffers(true);
+                    caps.setNumSamples(val.get(0));
+                }
+            }
+        }
+        if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_TRANSPARENT_TYPE, val)) {
+            caps.setBackgroundOpaque(val.get(0) != EGL.EGL_TRANSPARENT_RGB);
         }
         if(!caps.isBackgroundOpaque()) {
-            if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_TRANSPARENT_RED_VALUE, val, 0)) {
-                caps.setTransparentRedValue(val[0]==EGL.EGL_DONT_CARE?-1:val[0]);
+            if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_TRANSPARENT_RED_VALUE, val)) {
+                caps.setTransparentRedValue(val.get(0)==EGL.EGL_DONT_CARE?-1:val.get(0));
             }
-            if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_TRANSPARENT_GREEN_VALUE, val, 0)) {
-                caps.setTransparentGreenValue(val[0]==EGL.EGL_DONT_CARE?-1:val[0]);
+            if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_TRANSPARENT_GREEN_VALUE, val)) {
+                caps.setTransparentGreenValue(val.get(0)==EGL.EGL_DONT_CARE?-1:val.get(0));
             }
-            if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_TRANSPARENT_BLUE_VALUE, val, 0)) {
-                caps.setTransparentBlueValue(val[0]==EGL.EGL_DONT_CARE?-1:val[0]);
+            if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_TRANSPARENT_BLUE_VALUE, val)) {
+                caps.setTransparentBlueValue(val.get(0)==EGL.EGL_DONT_CARE?-1:val.get(0));
             }
             /** Not defined in EGL 
-            if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_TRANSPARENT_ALPHA_VALUE, val, 0)) {
-                caps.setTransparentAlphaValue(val[0]==EGL.EGL_DONT_CARE?-1:val[0]);
+            if(EGL.eglGetConfigAttrib(display, config, EGL.EGL_TRANSPARENT_ALPHA_VALUE, val)) {
+                caps.setTransparentAlphaValue(val.get(0)==EGL.EGL_DONT_CARE?-1:val.get(0));
             } */
         }
         return GLGraphicsConfigurationUtil.addGLCapabilitiesPermutations(capsBucket, caps, drawableTypeBits );
@@ -236,13 +284,25 @@ public class EGLGraphicsConfiguration extends DefaultGraphicsConfiguration imple
         attrs[idx++] = EGL.EGL_DEPTH_SIZE;
         attrs[idx++] = caps.getDepthBits();
 
-        attrs[idx++] = EGL.EGL_SAMPLES;
-        attrs[idx++] = caps.getSampleBuffers() ? caps.getNumSamples() : 1;
+        if(caps.getSampleBuffers()) {
+            if(caps.getSampleExtension().equals(GLGraphicsConfigurationUtil.NV_coverage_sample)) {
+                attrs[idx++] = EGLExt.EGL_COVERAGE_BUFFERS_NV;
+                attrs[idx++] = 1;
+                attrs[idx++] = EGLExt.EGL_COVERAGE_SAMPLES_NV;
+                attrs[idx++] = caps.getNumSamples();
+            } else {
+                // try default ..
+                attrs[idx++] = EGL.EGL_SAMPLE_BUFFERS;
+                attrs[idx++] = 1;
+                attrs[idx++] = EGL.EGL_SAMPLES;
+                attrs[idx++] = caps.getNumSamples();
+            }
+        }
 
         attrs[idx++] = EGL.EGL_TRANSPARENT_TYPE;
         attrs[idx++] = caps.isBackgroundOpaque() ? EGL.EGL_NONE : EGL.EGL_TRANSPARENT_TYPE;
 
-        // 20
+        // 22
 
         if(!caps.isBackgroundOpaque()) {
             attrs[idx++] = EGL.EGL_TRANSPARENT_RED_VALUE;
@@ -259,19 +319,17 @@ public class EGLGraphicsConfiguration extends DefaultGraphicsConfiguration imple
             attrs[idx++] = caps.getTransparentAlphaValue()>=0?caps.getTransparentAlphaValue():EGL.EGL_DONT_CARE; */
         }
 
-        // 26 
-
+        // 28 
         attrs[idx++] = EGL.EGL_RENDERABLE_TYPE;
         if(caps.getGLProfile().usesNativeGLES1()) {
             attrs[idx++] = EGL.EGL_OPENGL_ES_BIT;
-        }
-        else if(caps.getGLProfile().usesNativeGLES2()) {
+        } else if(caps.getGLProfile().usesNativeGLES2()) {
             attrs[idx++] = EGL.EGL_OPENGL_ES2_BIT;
         } else {
             attrs[idx++] = EGL.EGL_OPENGL_BIT;
         }
 
-        // 28
+        // 30
 
         attrs[idx++] = EGL.EGL_NONE;
 

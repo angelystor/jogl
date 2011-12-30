@@ -40,6 +40,7 @@
 
 package javax.media.nativewindow;
 
+import javax.media.nativewindow.util.InsetsImmutable;
 import javax.media.nativewindow.util.Point;
 
 /** Extend the {@link NativeSurface} interface with windowing
@@ -74,14 +75,55 @@ public interface NativeWindow extends NativeSurface {
    */
   public long getWindowHandle();
 
+  /** 
+   * Returns the insets defined as the width and height of the window decoration
+   * on the left, right, top and bottom.<br>
+   * Insets are zero if the window is undecorated, including child windows.
+   * 
+   * <p>
+   * Insets are available only after the native window has been created,
+   * ie. the native window has been made visible.<br>
+   *   
+   * The top-level window area's top-left corner is located at
+   * <pre>
+   *   getX() - getInsets().{@link InsetsImmutable#getLeftWidth() getLeftWidth()}
+   *   getY() - getInsets().{@link InsetsImmutable#getTopHeight() getTopHeight()}
+   * </pre> 
+   * 
+   * The top-level window size is
+   * <pre>
+   *   getWidth()  + getInsets().{@link InsetsImmutable#getTotalWidth() getTotalWidth()} 
+   *   getHeight() + getInsets().{@link InsetsImmutable#getTotalHeight() getTotalHeight()}
+   * </pre> 
+   * 
+   * @return insets
+   */
+  public InsetsImmutable getInsets();
+  
   /** Returns the current x position of this window, relative to it's parent. */
+  
+  /** 
+   * @return the current x position of the top-left corner
+   *         of the client area relative to it's parent. 
+   *         Since the position reflects the client area, it does not include the insets.
+   * @see #getInsets()
+   */
   public int getX();
 
-  /** Returns the current y position of this window, relative to it's parent. */
+  /** 
+   * @return the current y position of the top-left corner
+   *         of the client area relative to it's parent. 
+   *         Since the position reflects the client area, it does not include the insets.
+   * @see #getInsets()
+   */
   public int getY();
 
   /** 
-   * Returns the current absolute location of this window. 
+   * Returns the current position of the top-left corner 
+   * of the client area in screen coordinates.
+   * <p>
+   * Since the position reflects the client area, it does not include the insets.
+   * </p> 
    * @param point if not null,
    *        {@link javax.media.nativewindow.util.Point#translate(javax.media.nativewindow.util.Point)}
    *        the passed {@link javax.media.nativewindow.util.Point} by this location on the screen and return it.
@@ -89,5 +131,8 @@ public interface NativeWindow extends NativeSurface {
    *         or a new instance with the screen location of this NativeWindow.
    */
   public Point getLocationOnScreen(Point point);
+  
+  /** Returns true if this native window owns the focus, otherwise false. */
+  boolean hasFocus();
   
 }

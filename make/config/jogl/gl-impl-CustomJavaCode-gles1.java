@@ -46,6 +46,10 @@ public final boolean isGL2ES2() {
     return false;
 }
 
+public final boolean isGLES2Compatible() {
+    return false;
+}
+
 public final boolean isGL2GL3() {
     return false;
 }
@@ -97,60 +101,6 @@ public final GL2GL3 getGL2GL3() throws GLException {
 //
 // Helpers for ensuring the correct amount of texture data
 //
-
-/** Returns the number of bytes required to fill in the appropriate
-    texture. This is computed as closely as possible based on the
-    pixel pack or unpack parameters. The logic in this routine is
-    based on code in the SGI OpenGL sample implementation. */
-
-private int imageSizeInBytes(int format, int type, int w, int h, int d,
-                             boolean pack) {
-  int elements = 0;
-  int esize = 0;
-  
-  if (w < 0) return 0;
-  if (h < 0) return 0;
-  if (d < 0) return 0;
-  switch (format) {
-  case GL_ALPHA:
-  case GL_LUMINANCE:
-    elements = 1;
-    break;
-  case GL_LUMINANCE_ALPHA:
-    elements = 2;
-    break;
-  case GL_RGB:
-    elements = 3;
-    break;
-  case GL_RGBA:
-    elements = 4;
-    break;
-  default:
-    return 0;
-  }
-  switch (type) {
-  case GL_BYTE:
-  case GL_UNSIGNED_BYTE:
-    esize = 1;
-    break;
-  case GL_SHORT:
-  case GL_UNSIGNED_SHORT:
-    esize = 2;
-    break;
-  case GL_UNSIGNED_SHORT_5_6_5:
-  case GL_UNSIGNED_SHORT_4_4_4_4:
-  case GL_UNSIGNED_SHORT_5_5_5_1:
-    esize = 2;
-    elements = 1;
-    break;
-  case GL_FLOAT:
-    esize = 4;
-    break;
-  default:
-    return 0;
-  }
-  return imageSizeInBytes(elements * esize, w, h, d, pack);
-}
 
 private GLBufferSizeTracker  bufferSizeTracker;
 private GLBufferStateTracker bufferStateTracker;
@@ -293,25 +243,25 @@ native private long dispatch_glMapBuffer(int target, int access, long glProcAddr
 native private ByteBuffer newDirectByteBuffer(long addr, long capacity);
 
 public void glVertexPointer(GLArrayData array) {
-  if(array.getComponentNumber()==0) return;
+  if(array.getComponentCount()==0) return;
   if(array.isVBO()) {
-      glVertexPointer(array.getComponentNumber(), array.getComponentType(), array.getStride(), array.getVBOOffset());
+      glVertexPointer(array.getComponentCount(), array.getComponentType(), array.getStride(), array.getVBOOffset());
   } else {
-      glVertexPointer(array.getComponentNumber(), array.getComponentType(), array.getStride(), array.getBuffer());
+      glVertexPointer(array.getComponentCount(), array.getComponentType(), array.getStride(), array.getBuffer());
   }
 }
 public void glColorPointer(GLArrayData array) {
-  if(array.getComponentNumber()==0) return;
+  if(array.getComponentCount()==0) return;
   if(array.isVBO()) {
-      glColorPointer(array.getComponentNumber(), array.getComponentType(), array.getStride(), array.getVBOOffset());
+      glColorPointer(array.getComponentCount(), array.getComponentType(), array.getStride(), array.getVBOOffset());
   } else {
-      glColorPointer(array.getComponentNumber(), array.getComponentType(), array.getStride(), array.getBuffer());
+      glColorPointer(array.getComponentCount(), array.getComponentType(), array.getStride(), array.getBuffer());
   }
 
 }
 public void glNormalPointer(GLArrayData array) {
-  if(array.getComponentNumber()==0) return;
-  if(array.getComponentNumber()!=3) {
+  if(array.getComponentCount()==0) return;
+  if(array.getComponentCount()!=3) {
     throw new GLException("Only 3 components per normal allowed");
   }
   if(array.isVBO()) {
@@ -321,11 +271,11 @@ public void glNormalPointer(GLArrayData array) {
   }
 }
 public void glTexCoordPointer(GLArrayData array) {
-  if(array.getComponentNumber()==0) return;
+  if(array.getComponentCount()==0) return;
   if(array.isVBO()) {
-      glTexCoordPointer(array.getComponentNumber(), array.getComponentType(), array.getStride(), array.getVBOOffset());
+      glTexCoordPointer(array.getComponentCount(), array.getComponentType(), array.getStride(), array.getVBOOffset());
   } else {
-      glTexCoordPointer(array.getComponentNumber(), array.getComponentType(), array.getStride(), array.getBuffer());
+      glTexCoordPointer(array.getComponentCount(), array.getComponentType(), array.getStride(), array.getBuffer());
   }
 }
 

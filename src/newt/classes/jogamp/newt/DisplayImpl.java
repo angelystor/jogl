@@ -38,34 +38,34 @@ import com.jogamp.newt.Display;
 import com.jogamp.newt.NewtFactory;
 import com.jogamp.newt.event.NEWTEvent;
 import com.jogamp.newt.event.NEWTEventConsumer;
+
 import jogamp.newt.event.NEWTEventTask;
 import com.jogamp.newt.util.EDTUtil;
-import com.jogamp.newt.util.MainThread;
 import java.util.ArrayList;
 import javax.media.nativewindow.AbstractGraphicsDevice;
 import javax.media.nativewindow.NativeWindowException;
 import javax.media.nativewindow.NativeWindowFactory;
 
 public abstract class DisplayImpl extends Display {
-    public static final boolean DEBUG_TEST_EDT_MAINTHREAD = Debug.isPropertyDefined("newt.test.EDTMainThread", true); // JAU EDT Test ..
-
     private static int serialno = 1;
 
-    private static Class getDisplayClass(String type) 
+    private static Class<?> getDisplayClass(String type) 
         throws ClassNotFoundException 
     {
-        Class displayClass = NewtFactory.getCustomClass(type, "Display");
+        Class<?> displayClass = NewtFactory.getCustomClass(type, "Display");
         if(null==displayClass) {
-            if (NativeWindowFactory.TYPE_EGL.equals(type)) {
-                displayClass = Class.forName("jogamp.newt.opengl.kd.KDDisplay");
+            if (NativeWindowFactory.TYPE_ANDROID.equals(type)) {
+                displayClass = Class.forName("jogamp.newt.driver.android.AndroidDisplay");
+            } else if (NativeWindowFactory.TYPE_EGL.equals(type)) {
+                displayClass = Class.forName("jogamp.newt.driver.kd.KDDisplay");
             } else if (NativeWindowFactory.TYPE_WINDOWS.equals(type)) {
-                displayClass = Class.forName("jogamp.newt.windows.WindowsDisplay");
+                displayClass = Class.forName("jogamp.newt.driver.windows.WindowsDisplay");
             } else if (NativeWindowFactory.TYPE_MACOSX.equals(type)) {
-                displayClass = Class.forName("jogamp.newt.macosx.MacDisplay");
+                displayClass = Class.forName("jogamp.newt.driver.macosx.MacDisplay");
             } else if (NativeWindowFactory.TYPE_X11.equals(type)) {
-                displayClass = Class.forName("jogamp.newt.x11.X11Display");
+                displayClass = Class.forName("jogamp.newt.driver.x11.X11Display");
             } else if (NativeWindowFactory.TYPE_AWT.equals(type)) {
-                displayClass = Class.forName("jogamp.newt.awt.AWTDisplay");
+                displayClass = Class.forName("jogamp.newt.driver.awt.AWTDisplay");
             } else {
                 throw new RuntimeException("Unknown display type \"" + type + "\"");
             }
@@ -76,7 +76,7 @@ public abstract class DisplayImpl extends Display {
     /** Make sure to reuse a Display with the same name */
     public static Display create(String type, String name, final long handle, boolean reuse) {
         try {
-            Class displayClass = getDisplayClass(type);
+            Class<?> displayClass = getDisplayClass(type);
             DisplayImpl display = (DisplayImpl) displayClass.newInstance();
             name = display.validateDisplayName(name, handle);
             synchronized(displayList) {
@@ -167,15 +167,7 @@ public abstract class DisplayImpl extends Display {
 
     protected void createEDTUtil() {
         if(NewtFactory.useEDT()) {
-            if ( ! DEBUG_TEST_EDT_MAINTHREAD ) {
-                Thread current = Thread.currentThread();
-                edtUtil = new DefaultEDTUtil(current.getThreadGroup(), "Display-"+getFQName(), dispatchMessagesRunnable);
-            } else {
-                // Begin JAU EDT Test ..
-                MainThread.addPumpMessage(this, dispatchMessagesRunnable); 
-                edtUtil = MainThread.getSingleton();
-                // End JAU EDT Test ..
-            }
+            edtUtil = new DefaultEDTUtil(Thread.currentThread().getThreadGroup(), "Display-"+getFQName(), dispatchMessagesRunnable);            
             if(DEBUG) {
                 System.err.println("Display.createNative("+getFQName()+") Create EDTUtil: "+edtUtil.getClass().getName());
             }
@@ -239,9 +231,6 @@ public abstract class DisplayImpl extends Display {
             }
         } );
         if(null!=edtUtil) {
-            if ( DEBUG_TEST_EDT_MAINTHREAD ) {
-                MainThread.removePumpMessage(this); // JAU EDT Test ..
-            }
             edtUtil.waitUntilStopped();
             edtUtil.reset();
         }
@@ -333,7 +322,7 @@ public abstract class DisplayImpl extends Display {
         return aDevice;
     }
 
-    public final boolean isNativeValid() {
+    public synchronized final boolean isNativeValid() {
         return null != aDevice;
     }
 
@@ -352,7 +341,7 @@ public abstract class DisplayImpl extends Display {
     protected abstract void dispatchMessagesNative();
 
     private Object eventsLock = new Object();
-    private ArrayList/*<NEWTEvent>*/ events = new ArrayList();
+    private ArrayList<NEWTEventTask> events = new ArrayList<NEWTEventTask>();
     private volatile boolean haveEvents = false;
 
     class DispatchMessagesRunnable implements Runnable {
@@ -364,6 +353,12 @@ public abstract class DisplayImpl extends Display {
 
     final void dispatchMessage(final NEWTEventTask eventTask) {
         NEWTEvent event = eventTask.get();
+        if(null == event) {
+            // Ooops ?
+            System.err.println("Warning: event of eventTask is NULL");
+            Thread.dumpStack();
+            return;
+        }
         Object source = event.getSource();
         if(source instanceof NEWTEventConsumer) {
             NEWTEventConsumer consumer = (NEWTEventConsumer) source ;
@@ -379,24 +374,28 @@ public abstract class DisplayImpl extends Display {
     
     public void dispatchMessages() {
         // System.err.println("Display.dispatchMessages() 0 "+this+" "+getThreadName());
-        if(0==refCount) return; // no screens 
-        if(null==getGraphicsDevice()) return; // no native device
+        if(0==refCount || // no screens 
+           null==getGraphicsDevice() // no native device
+          ) 
+        {
+            return;
+        }
 
-        ArrayList/*<NEWTEvent>*/ _events = null;
+        ArrayList<NEWTEventTask> _events = null;
 
         if(haveEvents) { // volatile: ok
             synchronized(eventsLock) {
                 if(haveEvents) {
                     // swap events list to free ASAP
                     _events = events;
-                    events = new ArrayList();
+                    events = new ArrayList<NEWTEventTask>();
                     haveEvents = false;
                 }
                 eventsLock.notifyAll();
             }
             if( null != _events ) {
                 for (int i=0; i < _events.size(); i++) {
-                    dispatchMessage((NEWTEventTask) _events.get(i));
+                    dispatchMessage(_events.get(i));
                 }
             }
         }
@@ -439,6 +438,24 @@ public abstract class DisplayImpl extends Display {
         }
     }
 
+    public interface DisplayRunnable<T> {
+        T run(long dpy);
+    }    
+    public final <T> T runWithLockedDisplayHandle(DisplayRunnable<T> action) {
+        final AbstractGraphicsDevice aDevice = getGraphicsDevice();
+        if(null == aDevice) {
+            throw new RuntimeException("null device - not initialized: "+this);
+        }
+        T res;
+        aDevice.lock();
+        try {
+            res = action.run(aDevice.getHandle());
+        } finally {
+            aDevice.unlock();
+        }
+        return res;
+    }
+    
     protected EDTUtil edtUtil = null;
     protected int id;
     protected String name;

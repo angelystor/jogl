@@ -41,8 +41,11 @@
 package javax.media.opengl;
 
 import java.nio.IntBuffer;
+import java.security.AccessControlContext;
+import java.security.AccessController;
 import java.util.HashMap;
 import java.util.HashSet;
+
 import javax.media.nativewindow.AbstractGraphicsDevice;
 
 import com.jogamp.common.util.IntObjectHashMap;
@@ -63,10 +66,18 @@ import jogamp.opengl.GLContextImpl;
     abstraction provides a stable object which clients can use to
     refer to a given context. */
 public abstract class GLContext {
+  public static final boolean DEBUG = Debug.debug("GLContext");
+      
   /** Reflects property jogl.debug.DebugGL. If true, the debug pipeline is enabled at context creation. */
-  public final static boolean DEBUG_GL = Debug.debug("DebugGL");
+  public final static boolean DEBUG_GL;
   /** Reflects property jogl.debug.TraceGL. If true, the trace pipeline is enabled at context creation. */
-  public final static boolean TRACE_GL = Debug.debug("TraceGL");
+  public final static boolean TRACE_GL;
+  
+  static { 
+      final AccessControlContext acl = AccessController.getContext();
+      DEBUG_GL = Debug.isPropertyDefined("jogl.debug.DebugGL", true, acl);
+      TRACE_GL = Debug.isPropertyDefined("jogl.debug.TraceGL", true, acl);
+  }
   
   /** Indicates that the context was not made current during the last call to {@link #makeCurrent makeCurrent}. */
   public static final int CONTEXT_NOT_CURRENT = 0;
@@ -88,7 +99,9 @@ public abstract class GLContext {
   /** <code>ARB_create_context</code> related: flag not forward compatible */
   protected static final int CTX_OPTION_ANY     = 1 << 5;
   /** <code>ARB_create_context</code> related: flag debug */
-  public static final int CTX_OPTION_DEBUG   = 1 << 6;
+  public static final int CTX_OPTION_DEBUG   = 1 << 6;  
+  /** <code>GL_ARB_ES2_compatibility</code> related: Context is compatible w/ ES2 */
+  protected static final int CTX_PROFILE_ES2_COMPAT = 1 << 8;
 
   /** GLContext {@link com.jogamp.gluegen.runtime.ProcAddressTable} caching related: GL software implementation */
   protected static final int CTX_IMPL_ACCEL_SOFT = 1 << 0;
@@ -366,7 +379,7 @@ public abstract class GLContext {
    */
   public String toString() {
     StringBuffer sb = new StringBuffer();
-    sb.append(getClass().getName());
+    sb.append(getClass().getSimpleName());
     sb.append(" [");
     this.append(sb);
     sb.append("] ");
@@ -416,8 +429,8 @@ public abstract class GLContext {
   public final int getGLVersionMinor() { return ctxMinorVersion; }
   public final boolean isGLCompatibilityProfile() { return ( 0 != ( CTX_PROFILE_COMPAT & ctxOptions ) ); }
   public final boolean isGLCoreProfile()          { return ( 0 != ( CTX_PROFILE_CORE   & ctxOptions ) ); }
-  public final boolean isGLEmbeddedProfile()      { return ( 0 != ( CTX_PROFILE_ES     & ctxOptions ) ); }
   public final boolean isGLForwardCompatible()    { return ( 0 != ( CTX_OPTION_FORWARD & ctxOptions ) ); }
+  public final boolean isGLDebugEnabled()         { return ( 0 != ( CTX_OPTION_DEBUG & ctxOptions ) ); }
   public final boolean isCreatedWithARBMethod()   { return ( 0 != ( CTX_IS_ARB_CREATED & ctxOptions ) ); }
 
   /**
@@ -508,15 +521,15 @@ public abstract class GLContext {
   }
 
   public final boolean isGLES1() {
-      return ctxMajorVersion==1 && 0!=(ctxOptions & CTX_PROFILE_ES);
+      return ctxMajorVersion==1 && 0 != ( ctxOptions & CTX_PROFILE_ES ) ;
   }
 
   public final boolean isGLES2() {
-      return ctxMajorVersion==2 && 0!=(ctxOptions & CTX_PROFILE_ES);
+      return ctxMajorVersion==2 && 0 != ( ctxOptions & CTX_PROFILE_ES ) ;
   }
 
   public final boolean isGLES() {
-      return isGLEmbeddedProfile();
+      return 0 != ( CTX_PROFILE_ES & ctxOptions ) ;
   }
 
   public final boolean isGL2ES1() {
@@ -527,10 +540,60 @@ public abstract class GLContext {
       return isGL2GL3() || isGLES2() ;
   }
 
+  /**
+   * @return true if this context is an ES2 context or implements 
+   *         the extension <code>GL_ARB_ES2_compatibility</code>, otherwise false 
+   */
+  public final boolean isGLES2Compatible() {
+      return 0 != ( ctxOptions & CTX_PROFILE_ES2_COMPAT ) ;
+  }
+  
   public final boolean hasGLSL() {
       return isGL2ES2() ;
   }
 
+  public final void setSwapInterval(int interval) {
+    if (!isCurrent()) {
+        throw new GLException("This context is not current. Current context: "+getCurrent()+", this context "+this);
+    }
+    setSwapIntervalImpl(interval);
+  }
+  protected void setSwapIntervalImpl(int interval) { /** nop per default .. **/  }
+  protected int currentSwapInterval = -1; // default: not set yet ..
+  public int getSwapInterval() {
+    return currentSwapInterval;
+  }
+  
+  public final boolean queryMaxSwapGroups(int[] maxGroups, int maxGroups_offset,
+                                          int[] maxBarriers, int maxBarriers_offset) {
+      
+    if (!isCurrent()) {
+        throw new GLException("This context is not current. Current context: "+getCurrent()+", this context "+this);
+    }
+    return queryMaxSwapGroupsImpl(maxGroups, maxGroups_offset, maxBarriers, maxBarriers_offset);
+  }
+  protected boolean queryMaxSwapGroupsImpl(int[] maxGroups, int maxGroups_offset,
+                                          int[] maxBarriers, int maxBarriers_offset) { return false; }
+  public final boolean joinSwapGroup(int group) {
+    if (!isCurrent()) {
+        throw new GLException("This context is not current. Current context: "+getCurrent()+", this context "+this);
+    }
+    return joinSwapGroupImpl(group);
+  }
+  protected boolean joinSwapGroupImpl(int group) { /** nop per default .. **/  return false; }
+  protected int currentSwapGroup = -1; // default: not set yet ..  
+  public int getSwapGroup() {
+      return currentSwapGroup;
+  }
+  public final boolean bindSwapBarrier(int group, int barrier) {
+    if (!isCurrent()) {
+        throw new GLException("This context is not current. Current context: "+getCurrent()+", this context "+this);
+    }
+    return bindSwapBarrierImpl(group, barrier);    
+  }
+  protected boolean bindSwapBarrierImpl(int group, int barrier) { /** nop per default .. **/  return false; }
+
+  
   /**
    * @return The extension implementing the GLDebugOutput feature, 
    *         either <i>GL_ARB_debug_output</i> or <i>GL_AMD_debug_output</i>. 
@@ -626,7 +689,7 @@ public abstract class GLContext {
       /* 1.*/ { 0, 1, 2, 3, 4, 5 },
       /* 2.*/ { 0, 1 },
       /* 3.*/ { 0, 1, 2, 3 },
-      /* 4.*/ { 0, 1 } };
+      /* 4.*/ { 0, 1, 2 } };
 
   public static final int getMaxMajor() {
       return GL_VERSIONS.length-1;
@@ -706,12 +769,12 @@ public abstract class GLContext {
   /**
    * @see #getDeviceVersionAvailableKey(javax.media.nativewindow.AbstractGraphicsDevice, int, int) 
    */
-  protected static /*final*/ HashMap/*<DeviceVersionAvailableKey, Integer>*/ deviceVersionAvailable = new HashMap();
+  protected static /*final*/ HashMap<String, Integer> deviceVersionAvailable = new HashMap<String, Integer>();
 
   /**
    * @see #getUniqueDeviceString(javax.media.nativewindow.AbstractGraphicsDevice)
    */
-  private static /*final*/ HashSet/*<UniqueDeviceString>*/ deviceVersionsAvailableSet = new HashSet();
+  private static /*final*/ HashSet<String> deviceVersionsAvailableSet = new HashSet<String>();
 
   protected static String getDeviceVersionAvailableKey(AbstractGraphicsDevice device, int major, int profile) {
       return device.getUniqueID() + "-" + toHexString(compose8bit(major, profile, 0, 0));
@@ -730,13 +793,18 @@ public abstract class GLContext {
               throw new InternalError("Already set: "+devKey);
           }
           deviceVersionsAvailableSet.add(devKey);
-          if (GLContextImpl.DEBUG) {
-            String msg = getThreadName() + ": !!! createContextARB: SET mappedVersionsAvailableSet "+devKey;
-            // Throwable t = new Throwable(msg);
-            // t.printStackTrace();
-            System.err.println(msg);
+          if (DEBUG) {
+            System.err.println(getThreadName() + ": !!! createContextARB: SET mappedVersionsAvailableSet "+devKey);
+            // Thread.dumpStack();
           }
       }
+  }
+  
+  /** clears the device/context mappings as well as the GL/GLX proc address tables. */
+  protected static void shutdown() {
+      deviceVersionAvailable.clear();
+      deviceVersionsAvailableSet.clear();      
+      GLContextImpl.shutdownImpl(); // well ..
   }
 
   /**
@@ -760,7 +828,7 @@ public abstract class GLContext {
     String key = getDeviceVersionAvailableKey(device, reqMajor, profile);
     Integer val = new Integer(compose8bit(resMajor, resMinor, resCtp, 0));
     synchronized(deviceVersionAvailable) {
-        val = (Integer) deviceVersionAvailable.put( key, val );
+        val = deviceVersionAvailable.put( key, val );
     }
     return val;
   }
@@ -769,7 +837,7 @@ public abstract class GLContext {
     String key = getDeviceVersionAvailableKey(device, reqMajor, profile);
     Integer val;
     synchronized(deviceVersionAvailable) {
-        val = (Integer) deviceVersionAvailable.get( key );
+        val = deviceVersionAvailable.get( key );
     }
     return val;
   }
@@ -811,29 +879,29 @@ public abstract class GLContext {
       return null != getAvailableGLVersion(device, major, profile);
   }
 
-    public static boolean isGLES1Available(AbstractGraphicsDevice device) {
-        return isGLVersionAvailable(device, 1, GLContext.CTX_PROFILE_ES);
-    }
+  public static boolean isGLES1Available(AbstractGraphicsDevice device) {
+      return isGLVersionAvailable(device, 1, GLContext.CTX_PROFILE_ES);
+  }
 
-    public static boolean isGLES2Available(AbstractGraphicsDevice device) {
-        return isGLVersionAvailable(device, 2, GLContext.CTX_PROFILE_ES);
-    }
+  public static boolean isGLES2Available(AbstractGraphicsDevice device) {
+      return isGLVersionAvailable(device, 2, GLContext.CTX_PROFILE_ES);
+  }
 
-    public static boolean isGL4bcAvailable(AbstractGraphicsDevice device) {
-        return isGLVersionAvailable(device, 4, CTX_PROFILE_COMPAT);
-    }
+  public static boolean isGL4bcAvailable(AbstractGraphicsDevice device) {
+      return isGLVersionAvailable(device, 4, CTX_PROFILE_COMPAT);
+  }
 
-    public static boolean isGL4Available(AbstractGraphicsDevice device) {
-        return isGLVersionAvailable(device, 4, CTX_PROFILE_CORE);
-    }
+  public static boolean isGL4Available(AbstractGraphicsDevice device) {
+      return isGLVersionAvailable(device, 4, CTX_PROFILE_CORE);
+  }
 
-    public static boolean isGL3bcAvailable(AbstractGraphicsDevice device) {
-        return isGLVersionAvailable(device, 3, CTX_PROFILE_COMPAT);
-    }
+  public static boolean isGL3bcAvailable(AbstractGraphicsDevice device) {
+      return isGLVersionAvailable(device, 3, CTX_PROFILE_COMPAT);
+  }
 
-    public static boolean isGL3Available(AbstractGraphicsDevice device) {
-        return isGLVersionAvailable(device, 3, CTX_PROFILE_CORE);
-    }
+  public static boolean isGL3Available(AbstractGraphicsDevice device) {
+      return isGLVersionAvailable(device, 3, CTX_PROFILE_CORE);
+  }
 
   public static boolean isGL2Available(AbstractGraphicsDevice device) {
     return isGLVersionAvailable(device, 2, CTX_PROFILE_COMPAT);
@@ -861,6 +929,7 @@ public abstract class GLContext {
     sb.append(minor);
     sb.append(" (");
     needColon = appendString(sb, "ES",                    needColon, 0 != ( CTX_PROFILE_ES & ctp ));
+    needColon = appendString(sb, "ES2 compatible",        needColon, 0 != ( CTX_PROFILE_ES2_COMPAT & ctp ));
     needColon = appendString(sb, "compatibility profile", needColon, 0 != ( CTX_PROFILE_COMPAT & ctp ));
     needColon = appendString(sb, "core profile",          needColon, 0 != ( CTX_PROFILE_CORE & ctp ));
     needColon = appendString(sb, "forward compatible",    needColon, 0 != ( CTX_OPTION_FORWARD & ctp ));
@@ -876,6 +945,10 @@ public abstract class GLContext {
     return sb.toString();
   }
 
+  //
+  // internal string utils 
+  //
+  
   protected static String toString(int val, boolean hex) {
     if(hex) {
         return "0x" + Integer.toHexString(val);

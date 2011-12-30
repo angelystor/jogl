@@ -118,6 +118,24 @@ public interface NativeSurface extends SurfaceUpdatedListener {
    */
   public boolean surfaceSwap();
 
+  /** Appends the given {@link SurfaceUpdatedListener} to the end of the list. */
+  public void addSurfaceUpdatedListener(SurfaceUpdatedListener l);
+
+  /**
+   * Inserts the given {@link SurfaceUpdatedListener} at the
+   * specified position in the list.<br>
+   *
+   * @param index Position where the listener will be inserted.
+   * Should be within (0 <= index && index <= size()).
+   * An index value of -1 is interpreted as the end of the list, size().
+   * @param l The listener object to be inserted
+   * @throws IndexOutOfBoundsException If the index is not within (0 <= index && index <= size()), or -1
+   */
+  public void addSurfaceUpdatedListener(int index, SurfaceUpdatedListener l) throws IndexOutOfBoundsException;
+
+  /** Remove the specified {@link SurfaceUpdatedListener} from the list. */
+  public void removeSurfaceUpdatedListener(SurfaceUpdatedListener l);
+  
   /**
    * Returns the handle to the surface for this NativeSurface. <P>
    * 
@@ -135,14 +153,25 @@ public interface NativeSurface extends SurfaceUpdatedListener {
    */
   public long getSurfaceHandle();
 
-  /** Returns the current width of this surface. */
+  /**
+   * Returns the width of the client area excluding insets (window decorations).
+   * @return width of the client area
+   */
   public int getWidth();
 
-  /** Returns the current height of this surface. */
+  /**
+   * Returns the height of the client area excluding insets (window decorations).
+   * @return height of the client area
+   */
   public int getHeight();
 
   /**
    * Returns the graphics configuration corresponding to this window.
+   * <p>
+   * In case the implementation utilizes a delegation pattern to wrap abstract toolkits,
+   * this method shall return the native {@link AbstractGraphicsConfiguration} via {@link AbstractGraphicsConfiguration#getNativeGraphicsConfiguration()}.
+   * </p>
+   * @see AbstractGraphicsConfiguration#getNativeGraphicsConfiguration()
    * @see javax.media.nativewindow.GraphicsConfigurationFactory#chooseGraphicsConfiguration(Capabilities, CapabilitiesChooser, AbstractGraphicsScreen)
    */
   public AbstractGraphicsConfiguration getGraphicsConfiguration();

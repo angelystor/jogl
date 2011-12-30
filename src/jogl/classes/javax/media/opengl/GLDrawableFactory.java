@@ -47,12 +47,14 @@ import java.util.List;
 
 import com.jogamp.common.JogampRuntimeException;
 import jogamp.common.Debug;
+
 import com.jogamp.common.util.ReflectionUtil;
 
 import javax.media.nativewindow.AbstractGraphicsDevice;
 import javax.media.nativewindow.NativeSurface;
 import javax.media.nativewindow.NativeWindowFactory;
 import javax.media.nativewindow.ProxySurface;
+import javax.media.opengl.GLProfile.ShutdownType;
 
 /** <P> Provides a virtual machine- and operating system-independent
     mechanism for creating {@link GLDrawable}s. </P>
@@ -87,16 +89,16 @@ import javax.media.nativewindow.ProxySurface;
     property <code>opengl.factory.class.name</code> to the
     fully-qualified name of the desired class. </P>
 */
-
 public abstract class GLDrawableFactory {
 
-  private static final GLDrawableFactory eglFactory;
-  private static final GLDrawableFactory nativeOSFactory;
-  private static final String nativeOSType;
   static final String macosxFactoryClassNameCGL = "jogamp.opengl.macosx.cgl.MacOSXCGLDrawableFactory";
   static final String macosxFactoryClassNameAWTCGL = "jogamp.opengl.macosx.cgl.awt.MacOSXAWTCGLDrawableFactory";
+  
+  private static volatile boolean isInit = false;
+  private static GLDrawableFactory eglFactory;
+  private static GLDrawableFactory nativeOSFactory;
 
-  protected static ArrayList/*<GLDrawableFactoryImpl>*/ glDrawableFactories = new ArrayList();
+  protected static ArrayList<GLDrawableFactory> glDrawableFactories = new ArrayList<GLDrawableFactory>();
 
   // Shutdown hook mechanism for the factory
   private static boolean factoryShutdownHookRegistered = false;
@@ -105,16 +107,20 @@ public abstract class GLDrawableFactory {
   /**
    * Instantiate singleton factories if available, EGLES1, EGLES2 and the OS native ones.
    */
-  static {
-    AccessController.doPrivileged(new PrivilegedAction() {
-        public Object run() {
-            registerFactoryShutdownHook();
-            return null;
-        }
-    });
-
-    nativeOSType = NativeWindowFactory.getNativeWindowType(true);
-
+  public static final void initSingleton() { 
+      if (!isInit) { // volatile: ok
+          synchronized (GLDrawableFactory.class) {
+              if (!isInit) {
+                  isInit=true;
+                  initSingletonImpl();
+              }
+          }
+      }
+  }  
+  private static final void initSingletonImpl() {
+    registerFactoryShutdownHook();
+    
+    final String nativeOSType = NativeWindowFactory.getNativeWindowType(true);
     GLDrawableFactory tmp = null;
     String factoryClassName = Debug.getProperty("jogl.gldrawablefactory.class.name", true, AccessController.getContext());
     ClassLoader cl = GLDrawableFactory.class.getClassLoader();
@@ -163,16 +169,40 @@ public abstract class GLDrawableFactory {
     eglFactory = tmp;
   }
 
+  protected static void shutdown(ShutdownType shutdownType) {
+    if (isInit) { // volatile: ok
+      synchronized (GLDrawableFactory.class) {
+          if (isInit) {
+              isInit=false;
+              unregisterFactoryShutdownHook();
+              shutdownImpl(shutdownType);
+          }
+      }
+    }
+  }
+  private static void shutdownImpl(ShutdownType shutdownType) {
+    synchronized(glDrawableFactories) {
+        for(int i=0; i<glDrawableFactories.size(); i++) {
+            glDrawableFactories.get(i).destroy(shutdownType);
+        }
+        glDrawableFactories.clear();
+        
+        // both were members of glDrawableFactories and are shutdown already 
+        nativeOSFactory = null;
+        eglFactory = null;
+    }
+  }
+  
   private static synchronized void registerFactoryShutdownHook() {
     if (factoryShutdownHookRegistered) {
         return;
     }
     factoryShutdownHook = new Thread(new Runnable() {
         public void run() {
-            GLDrawableFactory.shutdownImpl();
+            GLDrawableFactory.shutdownImpl(GLProfile.ShutdownType.COMPLETE);
         }
     });
-    AccessController.doPrivileged(new PrivilegedAction() {
+    AccessController.doPrivileged(new PrivilegedAction<Object>() {
         public Object run() {
             Runtime.getRuntime().addShutdownHook(factoryShutdownHook);
             return null;
@@ -185,7 +215,7 @@ public abstract class GLDrawableFactory {
     if (!factoryShutdownHookRegistered) {
         return;
     }
-    AccessController.doPrivileged(new PrivilegedAction() {
+    AccessController.doPrivileged(new PrivilegedAction<Object>() {
         public Object run() {
             Runtime.getRuntime().removeShutdownHook(factoryShutdownHook);
             return null;
@@ -194,27 +224,6 @@ public abstract class GLDrawableFactory {
     factoryShutdownHookRegistered = false;
   }
 
-  private static void shutdownImpl() {
-    synchronized(glDrawableFactories) {
-        for(int i=0; i<glDrawableFactories.size(); i++) {
-            GLDrawableFactory factory = (GLDrawableFactory) glDrawableFactories.get(i);
-            factory.shutdownInstance();
-        }
-        glDrawableFactories.clear();
-    }
-  }
-
-  protected static void shutdown() {
-    AccessController.doPrivileged(new PrivilegedAction() {
-        public Object run() {
-            unregisterFactoryShutdownHook();
-            return null;
-        }
-    });
-    shutdownImpl();
-  }
-
-  private AbstractGraphicsDevice defaultSharedDevice = null;
 
   protected GLDrawableFactory() {
     synchronized(glDrawableFactories) {
@@ -225,7 +234,7 @@ public abstract class GLDrawableFactory {
   protected void enterThreadCriticalZone() {};
   protected void leaveThreadCriticalZone() {};
 
-  protected abstract void shutdownInstance();
+  protected abstract void destroy(ShutdownType shutdownType);
 
   /**
    * Retrieve the default <code>device</code> {@link AbstractGraphicsDevice#getConnection() connection},
@@ -260,36 +269,31 @@ public abstract class GLDrawableFactory {
   }
 
   /**
-   * Returns true if a shared context is already mapped to the <code>device</code> {@link AbstractGraphicsDevice#getConnection()},
-   * or if a new shared context could be created and mapped. Otherwise return false.<br>
-   * Creation of the shared context is tried only once.
-   *
-   * @param device which {@link javax.media.nativewindow.AbstractGraphicsDevice#getConnection() connection} denotes the shared the target device, may be <code>null</code> for the platform's default device.
+   * Validate and start the shared resource runner thread if necessary and 
+   * if the implementation uses it.
+   * 
+   * @return the shared resource runner thread, if implementation uses it.
    */
-  public final boolean getIsSharedContextAvailable(AbstractGraphicsDevice device) {
-      return null != getOrCreateSharedContext(device);
-  }
-
+  protected abstract Thread getSharedResourceThread();
+  
   /**
-   * Returns the shared context mapped to the <code>device</code> {@link AbstractGraphicsDevice#getConnection()},
-   * either a preexisting or newly created, or <code>null</code> if creation failed or not supported.<br>
-   * Creation of the shared context is tried only once.
+   * Create the shared resource used internally as a reference for capabilities etc.
+   * <p>
+   * Returns true if a shared resource could be created 
+   * for the <code>device</code> {@link AbstractGraphicsDevice#getConnection()}.<br>
+   * This does not imply a shared resource is mapped (ie. made persistent), but is available in general<br>.
+   * </p>
    *
    * @param device which {@link javax.media.nativewindow.AbstractGraphicsDevice#getConnection() connection} denotes the shared the target device, may be <code>null</code> for the platform's default device.
+   * @return true if a shared resource could been created, otherwise false. 
    */
-  public final GLContext getOrCreateSharedContext(AbstractGraphicsDevice device) {
-      device = validateDevice(device);
-      if(null!=device) {
-        return getOrCreateSharedContextImpl(device);
-      }
-      return null;
-  }
-  protected abstract GLContext getOrCreateSharedContextImpl(AbstractGraphicsDevice device);
-
+  protected abstract boolean createSharedResource(AbstractGraphicsDevice device);
+  
   /**
    * Returns the sole GLDrawableFactory instance for the desktop (X11, WGL, ..) if exist or null
    */
   public static GLDrawableFactory getDesktopFactory() {
+    GLProfile.initSingleton();    
     return nativeOSFactory;
   }
 
@@ -297,6 +301,7 @@ public abstract class GLDrawableFactory {
    * Returns the sole GLDrawableFactory instance for EGL if exist or null
    */
   public static GLDrawableFactory getEGLFactory() {
+    GLProfile.initSingleton();    
     return eglFactory;
   }
 
@@ -312,16 +317,15 @@ public abstract class GLDrawableFactory {
 
   protected static GLDrawableFactory getFactoryImpl(String glProfileImplName) throws GLException {
     if ( GLProfile.usesNativeGLES(glProfileImplName) ) {
-        if(null==eglFactory) throw new GLException("EGLDrawableFactory unavailable: "+glProfileImplName);
+        if(null==eglFactory) {
+            throw new GLException("No EGLDrawableFactory available for profile: "+glProfileImplName);
+        }
         return eglFactory;
     }
-    if(null!=nativeOSFactory) {
-        return nativeOSFactory;
+    if(null==nativeOSFactory) {
+        throw new GLException("No native platform GLDrawableFactory available for profile: "+glProfileImplName);
     }
-    if(null!=eglFactory) {
-        return eglFactory;
-    }
-    throw new GLException("No native platform GLDrawableFactory, nor EGLDrawableFactory available: "+glProfileImplName);
+    return nativeOSFactory;
   }
 
   protected static GLDrawableFactory getFactoryImpl(AbstractGraphicsDevice device) throws GLException {
@@ -343,14 +347,14 @@ public abstract class GLDrawableFactory {
    * @param device which {@link javax.media.nativewindow.AbstractGraphicsDevice#getConnection() connection} denotes the shared the target device, may be <code>null</code> for the platform's default device.
    * @return A list of {@link javax.media.opengl.GLCapabilitiesImmutable}'s, maybe empty if none is available.
    */
-  public final List/*GLCapabilitiesImmutable*/ getAvailableCapabilities(AbstractGraphicsDevice device) {
+  public final List<GLCapabilitiesImmutable> getAvailableCapabilities(AbstractGraphicsDevice device) {
       device = validateDevice(device);
       if(null!=device) {
         return getAvailableCapabilitiesImpl(device);
       }
       return null;
   }
-  protected abstract List/*GLCapabilitiesImmutable*/ getAvailableCapabilitiesImpl(AbstractGraphicsDevice device);
+  protected abstract List<GLCapabilitiesImmutable> getAvailableCapabilitiesImpl(AbstractGraphicsDevice device);
 
   //----------------------------------------------------------------------
   // Methods to create high-level objects

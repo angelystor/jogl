@@ -37,24 +37,22 @@ import javax.media.opengl.*;
 
 import com.jogamp.opengl.util.Animator;
 import com.jogamp.newt.*;
-import com.jogamp.newt.event.*;
 import com.jogamp.newt.opengl.*;
 
 import java.io.IOException;
 
 import com.jogamp.opengl.test.junit.util.*;
-import com.jogamp.opengl.test.junit.jogl.demos.es1.RedSquare;
-import com.jogamp.opengl.test.junit.jogl.demos.gl2.gears.Gears;
+import com.jogamp.opengl.test.junit.jogl.demos.es2.RedSquareES2;
+import com.jogamp.opengl.test.junit.jogl.demos.es2.GearsES2;
 
 public class TestParenting01NEWT extends UITestCase {
     static int width, height;
-    static long durationPerTest = 500;
+    static long durationPerTest = 600;
     static long waitAbout10FramesAt30fps = 10*34; // 10 frames @ 30fps
     static GLCapabilities glCaps;
 
     @BeforeClass
     public static void initClass() {
-        GLProfile.initSingleton(true);
         width  = 640;
         height = 480;
         glCaps = new GLCapabilities(null);
@@ -83,7 +81,7 @@ public class TestParenting01NEWT extends UITestCase {
 
         glWindow1.setTitle("testWindowParenting01CreateVisibleDestroy");
         glWindow1.setSize(640, 480);
-        GLEventListener demo1 = new RedSquare();
+        GLEventListener demo1 = new RedSquareES2();
         setDemoFields(demo1, glWindow1, false);
         glWindow1.addGLEventListener(demo1);
 
@@ -95,7 +93,7 @@ public class TestParenting01NEWT extends UITestCase {
         Assert.assertSame(screen,glWindow2.getScreen());
         Assert.assertSame(display,glWindow2.getScreen().getDisplay());
         glWindow2.setSize(320, 240);
-        GLEventListener demo2 = new Gears();
+        GLEventListener demo2 = new GearsES2();
         setDemoFields(demo2, glWindow2, false);
         glWindow2.addGLEventListener(demo2);
 
@@ -305,7 +303,7 @@ public class TestParenting01NEWT extends UITestCase {
         GLWindow glWindow1 = GLWindow.create(glCaps);
         glWindow1.setTitle("testWindowParenting02ReparentTop2Win");
         glWindow1.setSize(640, 480);
-        GLEventListener demo1 = new RedSquare();
+        GLEventListener demo1 = new RedSquareES2();
         setDemoFields(demo1, glWindow1, false);
         glWindow1.addGLEventListener(demo1);
         screen1 = glWindow1.getScreen();
@@ -321,7 +319,7 @@ public class TestParenting01NEWT extends UITestCase {
 
         GLWindow glWindow2 = GLWindow.create(glCaps);
         glWindow2.setSize(320, 240);
-        GLEventListener demo2 = new Gears();
+        GLEventListener demo2 = new GearsES2();
         setDemoFields(demo2, glWindow2, false);
         glWindow2.addGLEventListener(demo2);
         Assert.assertSame(screen1, glWindow2.getScreen());
@@ -502,7 +500,7 @@ public class TestParenting01NEWT extends UITestCase {
         display1 = screen1.getDisplay();
         glWindow1.setTitle("testWindowParenting03ReparentWin2Top");
         glWindow1.setSize(640, 480);
-        GLEventListener demo1 = new RedSquare();
+        GLEventListener demo1 = new RedSquareES2();
         setDemoFields(demo1, glWindow1, false);
         glWindow1.addGLEventListener(demo1);
 
@@ -518,7 +516,7 @@ public class TestParenting01NEWT extends UITestCase {
         screen2 = glWindow2.getScreen();
         display2 = screen2.getDisplay();
         glWindow2.setSize(320, 240);
-        GLEventListener demo2 = new Gears();
+        GLEventListener demo2 = new GearsES2();
         setDemoFields(demo2, glWindow2, false);
         glWindow2.addGLEventListener(demo2);
 
@@ -655,7 +653,7 @@ public class TestParenting01NEWT extends UITestCase {
             MiscUtils.setFieldIfExists(demo, "glDebug", true);
             MiscUtils.setFieldIfExists(demo, "glTrace", true);
         }
-        if(!MiscUtils.setFieldIfExists(demo, "window", glWindow.getWindow())) {
+        if(!MiscUtils.setFieldIfExists(demo, "window", glWindow.getDelegatedWindow())) {
             MiscUtils.setFieldIfExists(demo, "glWindow", glWindow);
         }
     }

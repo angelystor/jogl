@@ -43,7 +43,7 @@
 /* Current versions of Solaris don't expose the XF86 extensions,
    although with the recent transition to Xorg this will probably
    happen in an upcoming release */
-#if !defined(__sun) && !defined(_HPUX)
+#if !defined(__sun_obsolete) && !defined(_HPUX)
 #include <X11/extensions/xf86vmode.h>
 #else
 /* Need to provide stubs for these */
@@ -73,7 +73,7 @@ Bool XF86VidModeSetGammaRamp(
     unsigned short *blue_array) {
   return False;
 }
-#endif /* defined(__sun) || defined(_HPUX) */
+#endif /* defined(__sun_obsolete) || defined(_HPUX) */
 
 /* HP-UX doesn't define RTLD_DEFAULT. */
 #if defined(_HPUX) && !defined(RTLD_DEFAULT)
@@ -156,14 +156,12 @@ static void _initClazzAccess(JNIEnv *env) {
 
 static JavaVM *jvmHandle = NULL;
 static int jvmVersion = 0;
-static JNIEnv * jvmEnv = NULL;
 
 static void setupJVMVars(JNIEnv * env) {
     if(0 != (*env)->GetJavaVM(env, &jvmHandle)) {
         jvmHandle = NULL;
     }
     jvmVersion = (*env)->GetVersion(env);
-    jvmEnv = env;
 }
 
 static XErrorHandler origErrorHandler = NULL ;
@@ -173,15 +171,36 @@ static int errorHandlerQuiet = 0 ;
 static int x11ErrorHandler(Display *dpy, XErrorEvent *e)
 {
     if(!errorHandlerQuiet) {
-        fprintf(stderr, "Info: Nativewindow X11 Error: Display %p, Code 0x%X, errno %s\n", dpy, e->error_code, strerror(errno));
+        JNIEnv *curEnv = NULL;
+        JNIEnv *newEnv = NULL;
+        int envRes ;
+        const char * errStr = strerror(errno);
+
+        fprintf(stderr, "Info: Nativewindow X11 Error: Display %p, Code 0x%X, errno %s\n", dpy, e->error_code, errStr);
+        fflush(stderr);
+
+        // retrieve this thread's JNIEnv curEnv - or detect it's detached
+        envRes = (*jvmHandle)->GetEnv(jvmHandle, (void **) &curEnv, jvmVersion) ;
+        if( JNI_EDETACHED == envRes ) {
+            // detached thread - attach to JVM
+            if( JNI_OK != ( envRes = (*jvmHandle)->AttachCurrentThread(jvmHandle, (void**) &newEnv, NULL) ) ) {
+                fprintf(stderr, "Nativewindow X11 Error: can't attach thread: %d\n", envRes);
+                return 0;
+            }
+            curEnv = newEnv;
+        } else if( JNI_OK != envRes ) {
+            // oops ..
+            fprintf(stderr, "Nativewindow X11 Error: can't GetEnv: %d\n", envRes);
+            return 0;
+        }
+        NativewindowCommon_throwNewRuntimeException(curEnv, "Info: Nativewindow X11 Error: Display %p, Code 0x%X, errno %s", 
+                                                    dpy, e->error_code, errStr);
+
+        if( NULL != newEnv ) {
+            // detached attached thread
+            (*jvmHandle)->DetachCurrentThread(jvmHandle);
+        }
     }
-#if 0
-    // Since the X11 Error may happen anytime, a exception could mess up the JVM completely.
-    // Experienced this for remote displays issuing non supported commands, eg. glXCreateContextAttribsARB(..)
-    //
-    NativewindowCommon_throwNewRuntimeException(jvmEnv, "Info: Nativewindow X11 Error: Display %p, Code 0x%X, errno %s", 
-        dpy, e->error_code, strerror(errno));
-#endif
 
 #if 0
     if(NULL!=origErrorHandler) {
@@ -226,8 +245,35 @@ static XIOErrorHandler origIOErrorHandler = NULL;
 
 static int x11IOErrorHandler(Display *dpy)
 {
-    fprintf(stderr, "Nativewindow X11 IOError: Display %p (%s): %s\n", dpy, XDisplayName(NULL), strerror(errno));
-    // NativewindowCommon_FatalError(jvmEnv, "Nativewindow X11 IOError: Display %p (%s): %s", dpy, XDisplayName(NULL), strerror(errno));
+    JNIEnv *curEnv = NULL;
+    JNIEnv *newEnv = NULL;
+    int envRes ;
+    const char * dpyName = XDisplayName(NULL);
+    const char * errStr = strerror(errno);
+
+    fprintf(stderr, "Nativewindow X11 IOError: Display %p (%s): %s\n", dpy, dpyName, errStr);
+
+    // retrieve this thread's JNIEnv curEnv - or detect it's detached
+    envRes = (*jvmHandle)->GetEnv(jvmHandle, (void **) &curEnv, jvmVersion) ;
+    if( JNI_EDETACHED == envRes ) {
+        // detached thread - attach to JVM
+        if( JNI_OK != ( envRes = (*jvmHandle)->AttachCurrentThread(jvmHandle, (void**) &newEnv, NULL) ) ) {
+            fprintf(stderr, "Nativewindow X11 IOError: can't attach thread: %d\n", envRes);
+            return;
+        }
+        curEnv = newEnv;
+    } else if( JNI_OK != envRes ) {
+        // oops ..
+        fprintf(stderr, "Nativewindow X11 IOError: can't GetEnv: %d\n", envRes);
+        return;
+    }
+
+    NativewindowCommon_FatalError(curEnv, "Nativewindow X11 IOError: Display %p (%s): %s", dpy, dpyName, errStr);
+
+    if( NULL != newEnv ) {
+        // detached attached thread
+        (*jvmHandle)->DetachCurrentThread(jvmHandle);
+    }
     if(NULL!=origIOErrorHandler) {
         origIOErrorHandler(dpy);
     }
@@ -247,14 +293,16 @@ static void x11IOErrorHandlerEnable(int onoff, JNIEnv * env) {
 }
 
 static int _initialized=0;
+static jboolean _xinitThreadsOK=JNI_FALSE;
 
-JNIEXPORT void JNICALL 
+JNIEXPORT jboolean JNICALL 
 Java_jogamp_nativewindow_x11_X11Util_initialize0(JNIEnv *env, jclass _unused, jboolean firstUIActionOnProcess) {
     if(0==_initialized) {
         if( JNI_TRUE == firstUIActionOnProcess ) {
             if( 0 == XInitThreads() ) {
                 fprintf(stderr, "Warning: XInitThreads() failed\n");
             } else {
+                _xinitThreadsOK=JNI_TRUE;
                 fprintf(stderr, "Info: XInitThreads() called for concurrent Thread support\n");
             }
         } else {
@@ -265,6 +313,12 @@ Java_jogamp_nativewindow_x11_X11Util_initialize0(JNIEnv *env, jclass _unused, jb
         x11IOErrorHandlerEnable(1, env);
         _initialized=1;
     }
+    return _xinitThreadsOK;
+}
+
+JNIEXPORT void JNICALL 
+Java_jogamp_nativewindow_x11_X11Util_shutdown0(JNIEnv *env, jclass _unused) {
+    x11IOErrorHandlerEnable(0, env);
 }
 
 JNIEXPORT void JNICALL 

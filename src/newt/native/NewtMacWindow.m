@@ -44,15 +44,17 @@ jint GetDeltaY(NSEvent *event, jint javaMods) {
         // mouse pad case
         deltaY =
             CGEventGetIntegerValueField(cgEvent, kCGScrollWheelEventPointDeltaAxis1);
+        // fprintf(stderr, "WHEEL/PAD: %lf\n", (double)deltaY);
     } else {
         // traditional mouse wheel case
         deltaY = [event deltaY];
+        // fprintf(stderr, "WHEEL/TRAD: %lf\n", (double)deltaY);
         if (deltaY == 0.0 && (javaMods & EVENT_SHIFT_MASK) != 0) {
             // shift+vertical wheel scroll produces horizontal scroll
             // we convert it to vertical
             deltaY = [event deltaX];
         }
-        if (deltaY < 1.0  && deltaY > -1.0) {
+        if (-1.0 < deltaY && deltaY < 1.0) {
             deltaY *= 10.0;
         } else {
             if (deltaY < 0.0) {
@@ -62,33 +64,87 @@ jint GetDeltaY(NSEvent *event, jint javaMods) {
             }
         }
     }
-
-    if (deltaY > 0) {
-        return (NSInteger)deltaY;
-    } else if (deltaY < 0) {
-        return -(NSInteger)deltaY;
-    }
-
-    return 0;
+    // fprintf(stderr, "WHEEL/res: %d\n", (int)deltaY);
+    return (jint) deltaY;
 }
 
-static jmethodID sendMouseEventID  = NULL;
-static jmethodID sendKeyEventID    = NULL;
+static jmethodID enqueueMouseEventID = NULL;
+static jmethodID sendMouseEventID = NULL;
+static jmethodID enqueueKeyEventID = NULL;
+static jmethodID sendKeyEventID = NULL;
+static jmethodID requestFocusID = NULL;
+
 static jmethodID insetsChangedID   = NULL;
 static jmethodID sizeChangedID     = NULL;
 static jmethodID visibleChangedID = NULL;
 static jmethodID positionChangedID = NULL;
 static jmethodID focusChangedID    = NULL;
 static jmethodID windowDestroyNotifyID = NULL;
+static jmethodID windowRepaintID = NULL;
+
+// Can't use USE_SENDIO_DIRECT, ie w/o enqueueing to EDT,
+// since we may operate on AWT-AppKit (Main Thread)
+// and direct issuing 'requestFocus()' would deadlock:
+//     AWT-AppKit
+//     AWT-EventQueue-0
+//
+// #define USE_SENDIO_DIRECT 1
 
 @implementation NewtView
-- (void) setJNIEnv: (JNIEnv*) theEnv
+
+- (id)initWithFrame:(NSRect)frameRect
 {
-    env = theEnv;
+    javaWindowObject = NULL;
+
+    jvmHandle = NULL;
+    jvmVersion = 0;
+    destroyNotifySent = NO;
+    softLocked = NO;
+
+    pthread_mutexattr_t softLockSyncAttr;
+    pthread_mutexattr_init(&softLockSyncAttr);
+    pthread_mutexattr_settype(&softLockSyncAttr, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&softLockSync, &softLockSyncAttr); // recursive
+
+    ptrTrackingTag = 0;
+
+    /**
+    NSCursor crs = [NSCursor arrowCursor];
+    NSImage crsImg = [crs image];
+    NSPoint crsHot = [crs hotSpot];
+    myCursor = [[NSCursor alloc] initWithImage: crsImg hotSpot:crsHot];
+    */
+    myCursor = NULL;
+
+    return [super initWithFrame:frameRect];
 }
-- (JNIEnv*) getJNIEnv
+
+- (void) dealloc
 {
-    return env;
+    if(softLocked) {
+        NSLog(@"NewtView::dealloc: softLock still hold @ dealloc!\n");
+    }
+    pthread_mutex_destroy(&softLockSync);
+    [super dealloc];
+}
+
+- (void) setJVMHandle: (JavaVM*) vm
+{
+    jvmHandle = vm;
+}
+- (JavaVM*) getJVMHandle
+{
+    return jvmHandle;
+}
+
+- (void) setJVMVersion: (int) ver
+{
+    jvmVersion = ver;
+}
+
+- (int) getJVMVersion
+{
+    return jvmVersion;
 }
 
 - (void) setJavaWindowObject: (jobject) javaWindowObj
@@ -109,22 +165,136 @@ static jmethodID windowDestroyNotifyID = NULL;
     }
 }
 
-- (void)viewWillDraw
+- (void) resetCursorRects
 {
-    fprintf(stderr, "*************** viewWillDraw: 0x%p", javaWindowObject); fflush(stderr);
-    [super viewWillDraw];
+    [super resetCursorRects];
+
+    if(0 != ptrTrackingTag) {
+        // [self removeCursorRect: ptrRect cursor: myCursor];
+        [self removeTrackingRect: ptrTrackingTag];
+    }
+    ptrRect = [self bounds]; 
+    // [self addCursorRect: ptrRect cursor: myCursor];
+    ptrTrackingTag = [self addTrackingRect: ptrRect owner: self userData: nil assumeInside: NO];
 }
 
-- (void)viewDidHide
+- (NSCursor *) cursor
 {
-    (*env)->CallVoidMethod(env, javaWindowObject, visibleChangedID, JNI_FALSE);
+    return myCursor;
+}
+
+- (void) setDestroyNotifySent: (BOOL) v
+{
+    destroyNotifySent = v;
+}
+
+- (BOOL) getDestroyNotifySent
+{
+    return destroyNotifySent;
+}
+
+- (BOOL) softLock
+{
+    // DBG_PRINT("*************** softLock.0: %p\n", (void*)pthread_self());
+    // NSLog(@"NewtView::softLock: %@",[NSThread callStackSymbols]);
+    pthread_mutex_lock(&softLockSync);
+    softLocked = YES;
+    // DBG_PRINT("*************** softLock.X: %p\n", (void*)pthread_self());
+    return softLocked;
+}
+
+- (void) softUnlock
+{
+    // DBG_PRINT("*************** softUnlock: %p\n", (void*)pthread_self());
+    softLocked = NO;
+    pthread_mutex_unlock(&softLockSync);
+}
+
+- (BOOL) needsDisplay
+{
+    return NO == destroyNotifySent && [super needsDisplay];
+}
+
+- (void) displayIfNeeded
+{
+    if( YES == [self needsDisplay] ) {
+        [self softLock];
+        [super displayIfNeeded];
+        [self softUnlock];
+    }
+}
+
+- (void) display
+{
+    if( NO == destroyNotifySent ) {
+        [self softLock];
+        [super display];
+        [self softUnlock];
+    }
+}
+
+- (void) drawRect:(NSRect)dirtyRect
+{
+    DBG_PRINT("*************** dirtyRect: %p %lf/%lf %lfx%lf\n", 
+        javaWindowObject, dirtyRect.origin.x, dirtyRect.origin.y, dirtyRect.size.width, dirtyRect.size.height);
+
+    int shallBeDetached = 0;
+    JNIEnv* env = NewtCommon_GetJNIEnv(jvmHandle, jvmVersion, &shallBeDetached);
+    if(NULL==env) {
+        DBG_PRINT("viewDidHide: null JNIEnv\n");
+        return;
+    }
+
+    NSRect viewFrame = [self frame];
+
+    (*env)->CallVoidMethod(env, javaWindowObject, windowRepaintID, JNI_TRUE, // defer ..
+        dirtyRect.origin.x, viewFrame.size.height - dirtyRect.origin.y, 
+        dirtyRect.size.width, dirtyRect.size.height);
+
+    if (shallBeDetached) {
+        (*jvmHandle)->DetachCurrentThread(jvmHandle);
+    }
+}
+
+- (void) viewDidHide
+{
+    int shallBeDetached = 0;
+    JNIEnv* env = NewtCommon_GetJNIEnv(jvmHandle, jvmVersion, &shallBeDetached);
+    if(NULL==env) {
+        DBG_PRINT("viewDidHide: null JNIEnv\n");
+        return;
+    }
+
+    (*env)->CallVoidMethod(env, javaWindowObject, visibleChangedID, JNI_FALSE, JNI_FALSE);
+
+    if (shallBeDetached) {
+        (*jvmHandle)->DetachCurrentThread(jvmHandle);
+    }
+
     [super viewDidHide];
 }
 
-- (void)viewDidUnhide
+- (void) viewDidUnhide
 {
-    (*env)->CallVoidMethod(env, javaWindowObject, visibleChangedID, JNI_TRUE);
+    int shallBeDetached = 0;
+    JNIEnv* env = NewtCommon_GetJNIEnv(jvmHandle, jvmVersion, &shallBeDetached);
+    if(NULL==env) {
+        DBG_PRINT("viewDidHide: null JNIEnv\n");
+        return;
+    }
+
+    (*env)->CallVoidMethod(env, javaWindowObject, visibleChangedID, JNI_FALSE, JNI_TRUE);
+
+    if (shallBeDetached) {
+        (*jvmHandle)->DetachCurrentThread(jvmHandle);
+    }
+
     [super viewDidUnhide];
+}
+
+- (BOOL) acceptsFirstResponder 
+{
+    return YES;
 }
 
 @end
@@ -133,20 +303,49 @@ static jmethodID windowDestroyNotifyID = NULL;
 
 + (BOOL) initNatives: (JNIEnv*) env forClass: (jclass) clazz
 {
+    enqueueMouseEventID = (*env)->GetMethodID(env, clazz, "enqueueMouseEvent", "(ZIIIIII)V");
     sendMouseEventID = (*env)->GetMethodID(env, clazz, "sendMouseEvent", "(IIIIII)V");
+    enqueueKeyEventID = (*env)->GetMethodID(env, clazz, "enqueueKeyEvent", "(ZIIIC)V");
     sendKeyEventID = (*env)->GetMethodID(env, clazz, "sendKeyEvent", "(IIIC)V");
-    sizeChangedID     = (*env)->GetMethodID(env, clazz, "sizeChanged",     "(IIZ)V");
-    visibleChangedID = (*env)->GetMethodID(env, clazz, "visibleChanged", "(Z)V");
-    insetsChangedID     = (*env)->GetMethodID(env, clazz, "insetsChanged", "(IIII)V");
-    positionChangedID = (*env)->GetMethodID(env, clazz, "positionChanged", "(II)V");
-    focusChangedID = (*env)->GetMethodID(env, clazz, "focusChanged", "(Z)V");
+    sizeChangedID = (*env)->GetMethodID(env, clazz, "sizeChanged",     "(ZIIZ)V");
+    visibleChangedID = (*env)->GetMethodID(env, clazz, "visibleChanged", "(ZZ)V");
+    insetsChangedID = (*env)->GetMethodID(env, clazz, "insetsChanged", "(ZIIII)V");
+    positionChangedID = (*env)->GetMethodID(env, clazz, "positionChanged", "(ZII)V");
+    focusChangedID = (*env)->GetMethodID(env, clazz, "focusChanged", "(ZZ)V");
     windowDestroyNotifyID    = (*env)->GetMethodID(env, clazz, "windowDestroyNotify",    "()V");
-    if (sendMouseEventID && sendKeyEventID && sizeChangedID && visibleChangedID && insetsChangedID &&
-        positionChangedID && focusChangedID && windowDestroyNotifyID)
+    windowRepaintID = (*env)->GetMethodID(env, clazz, "windowRepaint", "(ZIIII)V");
+    requestFocusID = (*env)->GetMethodID(env, clazz, "requestFocus", "(Z)V");
+    if (enqueueMouseEventID && sendMouseEventID && enqueueKeyEventID && sendKeyEventID && sizeChangedID && visibleChangedID && insetsChangedID &&
+        positionChangedID && focusChangedID && windowDestroyNotifyID && requestFocusID && windowRepaintID)
     {
         return YES;
     }
     return NO;
+}
+
+- (id) initWithContentRect: (NSRect) contentRect
+       styleMask: (NSUInteger) windowStyle
+       backing: (NSBackingStoreType) bufferingType
+       defer: (BOOL) deferCreation
+       screen:(NSScreen *)screen
+{
+    id res = [super initWithContentRect: contentRect
+                    styleMask: windowStyle
+                    backing: bufferingType
+                    defer: deferCreation
+                    screen: screen];
+    // Why is this necessary? Without it we don't get any of the
+    // delegate methods like resizing and window movement.
+    [self setDelegate: self];
+    cachedInsets[0] = 0; // l
+    cachedInsets[1] = 0; // r
+    cachedInsets[2] = 0; // t
+    cachedInsets[3] = 0; // b
+    mouseConfined = NO;
+    mouseVisible = YES;
+    mouseInside = NO;
+    cursorIsHidden = NO;
+    return res;
 }
 
 - (void) updateInsets: (JNIEnv*) env
@@ -167,29 +366,105 @@ static jmethodID windowDestroyNotifyID = NULL;
     // note: this is a simplistic implementation which doesn't take
     // into account DPI and scaling factor
     CGFloat l = contentRect.origin.x - frameRect.origin.x;
-    jint top = (jint)(frameRect.size.height - contentRect.size.height);
-    jint left = (jint)l;
-    jint bottom = (jint)(contentRect.origin.y - frameRect.origin.y);
-    jint right = (jint)(frameRect.size.width - (contentRect.size.width + l));
+    cachedInsets[0] = (int)l;                                                     // l
+    cachedInsets[1] = (int)(frameRect.size.width - (contentRect.size.width + l)); // r
+    cachedInsets[2] = (jint)(frameRect.size.height - contentRect.size.height);    // t
+    cachedInsets[3] = (jint)(contentRect.origin.y - frameRect.origin.y);          // b
 
-    (*env)->CallVoidMethod(env, javaWindowObject, insetsChangedID,
-                           left, top, right, bottom);
+    DBG_PRINT( "updateInsets: [ l %d, r %d, t %d, b %d ]\n", cachedInsets[0], cachedInsets[1], cachedInsets[2], cachedInsets[3]);
+
+    (*env)->CallVoidMethod(env, javaWindowObject, insetsChangedID, JNI_FALSE, cachedInsets[0], cachedInsets[1], cachedInsets[2], cachedInsets[3]);
 }
 
-- (id) initWithContentRect: (NSRect) contentRect
-       styleMask: (NSUInteger) windowStyle
-       backing: (NSBackingStoreType) bufferingType
-       screen:(NSScreen *)screen
+- (void) attachToParent: (NSWindow*) parent
 {
-    id res = [super initWithContentRect: contentRect
-                    styleMask: windowStyle
-                    backing: bufferingType
-                    defer: YES
-                    screen: screen];
-    // Why is this necessary? Without it we don't get any of the
-    // delegate methods like resizing and window movement.
-    [self setDelegate: self];
-    return res;
+    DBG_PRINT( "attachToParent.1\n");
+    [parent addChildWindow: self ordered: NSWindowAbove];
+    DBG_PRINT( "attachToParent.2\n");
+    [self setParentWindow: parent];
+    DBG_PRINT( "attachToParent.X\n");
+}
+
+- (void) detachFromParent: (NSWindow*) parent
+{
+    DBG_PRINT( "detachFromParent.1\n");
+    [self setParentWindow: nil];
+    DBG_PRINT( "detachFromParent.2\n");
+    [parent removeChildWindow: self];
+    DBG_PRINT( "detachFromParent.X\n");
+}
+
+/**
+ * p abs screen position w/ top-left origin
+ * returns: abs screen position w/ bottom-left origin
+ */
+- (NSPoint) newtScreenWinPos2OSXScreenPos: (NSPoint) p
+{
+    NSView* mView = [self contentView];
+    NSRect mViewFrame = [mView frame]; 
+    int totalHeight = mViewFrame.size.height + cachedInsets[2] + cachedInsets[3]; // height + insets[top+bottom]
+
+    NSScreen* screen = [self screen];
+    NSRect screenFrame = [screen frame];
+
+    return NSMakePoint(screenFrame.origin.x + p.x + cachedInsets[0],
+                       screenFrame.origin.y + screenFrame.size.height - p.y - totalHeight);
+}
+
+/**
+ * p rel client window position w/ top-left origin
+ * returns: abs screen position w/ bottom-left origin
+ */
+- (NSPoint) newtClientWinPos2OSXScreenPos: (NSPoint) p
+{
+    NSRect winFrame = [self frame];
+
+    NSView* mView = [self contentView];
+    NSRect mViewFrame = [mView frame]; 
+
+    return NSMakePoint(winFrame.origin.x + p.x,
+                       winFrame.origin.y + ( mViewFrame.size.height - p.y ) ); // y-flip in view
+}
+
+/**
+ * y-flips input / output
+ * p rel client window position w/ top-left origin
+ * returns: location in 0/0 top-left space.
+ */
+- (NSPoint) getLocationOnScreen: (NSPoint) p
+{
+    NSScreen* screen = [self screen];
+    NSRect screenRect = [screen frame];
+
+    NSView* view = [self contentView];
+    NSRect viewFrame = [view frame];
+
+    NSRect r;
+    r.origin.x = p.x;
+    r.origin.y = viewFrame.size.height - p.y; // y-flip
+    r.size.width = 0;
+    r.size.height = 0;
+    // NSRect rS = [win convertRectToScreen: r]; // 10.7
+    NSPoint oS = [self convertBaseToScreen: r.origin];
+    oS.y = screenRect.origin.y + screenRect.size.height - oS.y;
+    return oS;
+}
+
+- (NSPoint) screenPos2NewtClientWinPos: (NSPoint) p
+{
+    NSView* view = [self contentView];
+    NSRect viewFrame = [view frame];
+
+    NSRect r;
+    r.origin.x = p.x;
+    r.origin.y = p.y;
+    r.size.width = 0;
+    r.size.height = 0;
+    // NSRect rS = [win convertRectFromScreen: r]; // 10.7
+    NSPoint oS = [self convertScreenToBase: r.origin];
+    oS.y = viewFrame.size.height - oS.y; // y-flip
+
+    return oS;
 }
 
 - (BOOL) canBecomeKeyWindow
@@ -225,8 +500,15 @@ static jint mods2JavaMods(NSUInteger mods)
     }
     NewtView* view = (NewtView *) nsview;
     jobject javaWindowObject = [view getJavaWindowObject];
-    JNIEnv* env = [view getJNIEnv];
-    if (env==NULL || javaWindowObject == NULL) {
+    if (javaWindowObject == NULL) {
+        DBG_PRINT("sendKeyEvent: null javaWindowObject\n");
+        return;
+    }
+    int shallBeDetached = 0;
+    JavaVM *jvmHandle = [view getJVMHandle];
+    JNIEnv* env = NewtCommon_GetJNIEnv(jvmHandle, [view getJVMVersion], &shallBeDetached);
+    if(NULL==env) {
+        DBG_PRINT("sendKeyEvent: null JNIEnv\n");
         return;
     }
 
@@ -240,8 +522,19 @@ static jint mods2JavaMods(NSUInteger mods)
         // Note: the key code in the NSEvent does not map to anything we can use
         jchar keyChar = (jchar) [chars characterAtIndex: i];
 
+        DBG_PRINT("sendKeyEvent: %d/%d char 0x%X, code 0x%X\n", i, len, (int)keyChar, (int)keyCode);
+
+        #ifdef USE_SENDIO_DIRECT
         (*env)->CallVoidMethod(env, javaWindowObject, sendKeyEventID,
                                evType, javaMods, keyCode, keyChar);
+        #else
+        (*env)->CallVoidMethod(env, javaWindowObject, enqueueKeyEventID, JNI_FALSE,
+                               evType, javaMods, keyCode, keyChar);
+        #endif
+    }
+
+    if (shallBeDetached) {
+        (*jvmHandle)->DetachCurrentThread(jvmHandle);
     }
 }
 
@@ -264,21 +557,18 @@ static jint mods2JavaMods(NSUInteger mods)
     }
     NewtView* view = (NewtView *) nsview;
     jobject javaWindowObject = [view getJavaWindowObject];
-    JNIEnv* env = [view getJNIEnv];
-    if (env==NULL || javaWindowObject == NULL) {
+    if (javaWindowObject == NULL) {
+        DBG_PRINT("sendMouseEvent: null javaWindowObject\n");
         return;
     }
-
+    int shallBeDetached = 0;
+    JavaVM *jvmHandle = [view getJVMHandle];
+    JNIEnv* env = NewtCommon_GetJNIEnv(jvmHandle, [view getJVMVersion], &shallBeDetached);
+    if(NULL==env) {
+        DBG_PRINT("sendMouseEvent: null JNIEnv\n");
+        return;
+    }
     jint javaMods = mods2JavaMods([event modifierFlags]);
-    NSRect frameRect = [self frame];
-    NSRect contentRect = [self contentRectForFrameRect: frameRect];
-    // NSPoint location = [event locationInWindow];
-    // The following computation improves the behavior of mouse drag
-    // events when they also affect the location of the window, but it
-    // still isn't perfect
-    NSPoint curLocation = [NSEvent mouseLocation];
-    NSPoint location = NSMakePoint(curLocation.x - frameRect.origin.x,
-                                   curLocation.y - frameRect.origin.y);
 
     // convert to 1-based button number (or use zero if no button is involved)
     // TODO: detect mouse button when mouse wheel scrolled  
@@ -287,6 +577,7 @@ static jint mods2JavaMods(NSUInteger mods)
     switch ([event type]) {
     case NSScrollWheel: {
         scrollDeltaY = GetDeltaY(event, javaMods);
+        javaButtonNum = 1;
         break;
     }
     case NSLeftMouseDown:
@@ -304,34 +595,102 @@ static jint mods2JavaMods(NSUInteger mods)
     case NSOtherMouseDragged:
         javaButtonNum = 2;
         break;
-    default:
-        javaButtonNum = 0;
-        break;
     }
 
     if (evType == EVENT_MOUSE_WHEEL_MOVED && scrollDeltaY == 0) {
         // ignore 0 increment wheel scroll events
         return;
     }
+    if (evType == EVENT_MOUSE_PRESSED) {
+        (*env)->CallVoidMethod(env, javaWindowObject, requestFocusID, JNI_FALSE);
+    }
+
+    NSPoint location = [self screenPos2NewtClientWinPos: [NSEvent mouseLocation]];
+
+    #ifdef USE_SENDIO_DIRECT
     (*env)->CallVoidMethod(env, javaWindowObject, sendMouseEventID,
                            evType, javaMods,
-                           (jint) location.x,
-                           (jint) (contentRect.size.height - location.y),
+                           (jint) location.x, (jint) location.y,
                            javaButtonNum, scrollDeltaY);
+    #else
+    (*env)->CallVoidMethod(env, javaWindowObject, enqueueMouseEventID, JNI_FALSE,
+                           evType, javaMods,
+                           (jint) location.x, (jint) location.y,
+                           javaButtonNum, scrollDeltaY);
+    #endif
+
+    if (shallBeDetached) {
+        (*jvmHandle)->DetachCurrentThread(jvmHandle);
+    }
+}
+
+- (void) setMouseVisible:(BOOL)v
+{
+    mouseVisible = v;
+    DBG_PRINT( "setMouseVisible: confined %d, visible %d\n", mouseConfined, mouseVisible);
+    if(YES == mouseInside) {
+        [self cursorHide: !mouseVisible];
+    }
+}
+
+- (void) cursorHide:(BOOL)v
+{
+    if(v) {
+        if(!cursorIsHidden) {
+            [NSCursor hide];
+            cursorIsHidden = YES;
+        }
+    } else {
+        if(cursorIsHidden) {
+            [NSCursor unhide];
+            cursorIsHidden = NO;
+        }
+    }
+}
+
+- (void) setMouseConfined:(BOOL)v
+{
+    mouseConfined = v;
+    DBG_PRINT( "setMouseConfined: confined %d, visible %d\n", mouseConfined, mouseVisible);
+}
+
+- (void) setMousePosition:(NSPoint)p
+{
+    NSScreen* screen = [self screen];
+    NSRect screenRect = [screen frame];
+
+    CGPoint pt = { p.x, screenRect.size.height - p.y }; // y-flip (CG is top-left origin)
+    CGEventRef ev = CGEventCreateMouseEvent (NULL, kCGEventMouseMoved, pt, kCGMouseButtonLeft);
+    CGEventPost (kCGHIDEventTap, ev);
+    NSPoint l0 = [NSEvent mouseLocation];
+    [self screenPos2NewtClientWinPos: l0];
 }
 
 - (void) mouseEntered: (NSEvent*) theEvent
 {
-    [self sendMouseEvent: theEvent eventType: EVENT_MOUSE_ENTERED];
+    DBG_PRINT( "mouseEntered: confined %d, visible %d\n", mouseConfined, mouseVisible);
+    mouseInside = YES;
+    [self setMouseVisible: mouseVisible];
+    if(NO == mouseConfined) {
+        [self sendMouseEvent: theEvent eventType: EVENT_MOUSE_ENTERED];
+    }
 }
 
 - (void) mouseExited: (NSEvent*) theEvent
 {
-    [self sendMouseEvent: theEvent eventType: EVENT_MOUSE_EXITED];
+    DBG_PRINT( "mouseExited: confined %d, visible %d\n", mouseConfined, mouseVisible);
+    if(NO == mouseConfined) {
+        mouseInside = NO;
+        [self cursorHide: NO];
+        [self sendMouseEvent: theEvent eventType: EVENT_MOUSE_EXITED];
+    } else {
+        [self setMousePosition: lastInsideMousePosition];
+    }
 }
 
 - (void) mouseMoved: (NSEvent*) theEvent
 {
+    lastInsideMousePosition = [NSEvent mouseLocation];
     [self sendMouseEvent: theEvent eventType: EVENT_MOUSE_MOVED];
 }
 
@@ -347,6 +706,7 @@ static jint mods2JavaMods(NSUInteger mods)
 
 - (void) mouseDragged: (NSEvent*) theEvent
 {
+    lastInsideMousePosition = [NSEvent mouseLocation];
     // Note use of MOUSE_MOVED event type because mouse dragged events are synthesized by Java
     [self sendMouseEvent: theEvent eventType: EVENT_MOUSE_MOVED];
 }
@@ -363,6 +723,7 @@ static jint mods2JavaMods(NSUInteger mods)
 
 - (void) rightMouseDragged: (NSEvent*) theEvent
 {
+    lastInsideMousePosition = [NSEvent mouseLocation];
     // Note use of MOUSE_MOVED event type because mouse dragged events are synthesized by Java
     [self sendMouseEvent: theEvent eventType: EVENT_MOUSE_MOVED];
 }
@@ -379,6 +740,7 @@ static jint mods2JavaMods(NSUInteger mods)
 
 - (void) otherMouseDragged: (NSEvent*) theEvent
 {
+    lastInsideMousePosition = [NSEvent mouseLocation];
     // Note use of MOUSE_MOVED event type because mouse dragged events are synthesized by Java
     [self sendMouseEvent: theEvent eventType: EVENT_MOUSE_MOVED];
 }
@@ -396,8 +758,15 @@ static jint mods2JavaMods(NSUInteger mods)
     }
     NewtView* view = (NewtView *) nsview;
     jobject javaWindowObject = [view getJavaWindowObject];
-    JNIEnv* env = [view getJNIEnv];
-    if (env==NULL || javaWindowObject == NULL) {
+    if (javaWindowObject == NULL) {
+        DBG_PRINT("windowDidResize: null javaWindowObject\n");
+        return;
+    }
+    int shallBeDetached = 0;
+    JavaVM *jvmHandle = [view getJVMHandle];
+    JNIEnv* env = NewtCommon_GetJNIEnv(jvmHandle, [view getJVMVersion], &shallBeDetached);
+    if(NULL==env) {
+        DBG_PRINT("windowDidResize: null JNIEnv\n");
         return;
     }
 
@@ -407,9 +776,13 @@ static jint mods2JavaMods(NSUInteger mods)
     NSRect frameRect = [self frame];
     NSRect contentRect = [self contentRectForFrameRect: frameRect];
 
-    (*env)->CallVoidMethod(env, javaWindowObject, sizeChangedID,
+    (*env)->CallVoidMethod(env, javaWindowObject, sizeChangedID, JNI_FALSE,
                            (jint) contentRect.size.width,
                            (jint) contentRect.size.height, JNI_FALSE);
+
+    if (shallBeDetached) {
+        (*jvmHandle)->DetachCurrentThread(jvmHandle);
+    }
 }
 
 - (void)windowDidMove: (NSNotification*) notification
@@ -420,76 +793,134 @@ static jint mods2JavaMods(NSUInteger mods)
     }
     NewtView* view = (NewtView *) nsview;
     jobject javaWindowObject = [view getJavaWindowObject];
-    JNIEnv* env = [view getJNIEnv];
-    if (env==NULL || javaWindowObject == NULL) {
+    if (javaWindowObject == NULL) {
+        DBG_PRINT("windowDidMove: null javaWindowObject\n");
+        return;
+    }
+    int shallBeDetached = 0;
+    JavaVM *jvmHandle = [view getJVMHandle];
+    JNIEnv* env = NewtCommon_GetJNIEnv(jvmHandle, [view getJVMVersion], &shallBeDetached);
+    if(NULL==env) {
+        DBG_PRINT("windowDidMove: null JNIEnv\n");
         return;
     }
 
-    NSRect rect = [self frame];
-    NSScreen* screen = NULL;
-    NSRect screenRect;
-    NSPoint pt;
+    NSPoint p0 = { 0, 0 };
+    p0 = [self getLocationOnScreen: p0];
+    (*env)->CallVoidMethod(env, javaWindowObject, positionChangedID, JNI_FALSE, (jint) p0.x, (jint) p0.y);
 
-    screen = [self screen];
-    // this allows for better compatibility with awt behavior
-    screenRect = [screen frame];
-    pt = NSMakePoint(rect.origin.x, screenRect.origin.y + screenRect.size.height - rect.origin.y - rect.size.height);
-
-    (*env)->CallVoidMethod(env, javaWindowObject, positionChangedID,
-                           (jint) pt.x, (jint) pt.y);
+    if (shallBeDetached) {
+        (*jvmHandle)->DetachCurrentThread(jvmHandle);
+    }
 }
 
 - (void)windowWillClose: (NSNotification*) notification
 {
+    NSAutoreleasePool* pool = [[NSAutoreleasePool alloc] init];
+
+    [self cursorHide: NO];
+
     NSView* nsview = [self contentView];
     if( ! [nsview isMemberOfClass:[NewtView class]] ) {
         return;
     }
     NewtView* view = (NewtView *) nsview;
-    jobject javaWindowObject = [view getJavaWindowObject];
-    JNIEnv* env = [view getJNIEnv];
-    if (env==NULL || javaWindowObject == NULL) {
-        return;
+
+    if( false == [view getDestroyNotifySent] ) {
+        jobject javaWindowObject = [view getJavaWindowObject];
+        DBG_PRINT( "*************** windowWillClose.0: %p\n", (void *)(intptr_t)javaWindowObject);
+        if (javaWindowObject == NULL) {
+            DBG_PRINT("windowWillClose: null javaWindowObject\n");
+            return;
+        }
+        int shallBeDetached = 0;
+        JavaVM *jvmHandle = [view getJVMHandle];
+        JNIEnv* env = NewtCommon_GetJNIEnv(jvmHandle, [view getJVMVersion], &shallBeDetached);
+        if(NULL==env) {
+            DBG_PRINT("windowWillClose: null JNIEnv\n");
+            return;
+        }
+
+        [view setDestroyNotifySent: true];
+        (*env)->CallVoidMethod(env, javaWindowObject, windowDestroyNotifyID);
+        // Can't issue call here - locked window state, done from Java method
+
+        // EOL ..
+        (*env)->DeleteGlobalRef(env, javaWindowObject);
+        [view setJavaWindowObject: NULL];
+
+        if (shallBeDetached) {
+            (*jvmHandle)->DetachCurrentThread(jvmHandle);
+        }
+        DBG_PRINT( "*************** windowWillClose.X: %p\n", (void *)(intptr_t)javaWindowObject);
+    } else {
+        DBG_PRINT( "*************** windowWillClose (skip)\n");
     }
+    [pool release];
+}
 
-    (*env)->CallVoidMethod(env, javaWindowObject, windowDestroyNotifyID);
-    // Can't issue call here - locked window state, done from Java method
+- (BOOL) becomeFirstResponder
+{
+    DBG_PRINT( "*************** becomeFirstResponder\n");
+    return [super becomeFirstResponder];
+}
 
-    // EOL ..
-    (*env)->DeleteGlobalRef(env, javaWindowObject);
-    [view setJavaWindowObject: NULL];
+- (BOOL) resignFirstResponder
+{
+    DBG_PRINT( "*************** resignFirstResponder\n");
+    return [super resignFirstResponder];
+}
+
+- (void) becomeKeyWindow
+{
+    DBG_PRINT( "*************** becomeKeyWindow\n");
+    [super becomeKeyWindow];
+}
+
+- (void) resignKeyWindow
+{
+    DBG_PRINT( "*************** resignKeyWindow\n");
+    [super resignKeyWindow];
 }
 
 - (void) windowDidBecomeKey: (NSNotification *) notification
 {
-    NSView* nsview = [self contentView];
-    if( ! [nsview isMemberOfClass:[NewtView class]] ) {
-        return;
-    }
-    NewtView* view = (NewtView *) nsview;
-    jobject javaWindowObject = [view getJavaWindowObject];
-    JNIEnv* env = [view getJNIEnv];
-    if (env==NULL || javaWindowObject == NULL) {
-        return;
-    }
-
-    (*env)->CallVoidMethod(env, javaWindowObject, focusChangedID, JNI_TRUE);
+    DBG_PRINT( "*************** windowDidBecomeKey\n");
+    [self focusChanged: YES];
 }
 
 - (void) windowDidResignKey: (NSNotification *) notification
 {
+    DBG_PRINT( "*************** windowDidResignKey\n");
+    [self focusChanged: NO];
+}
+
+- (void) focusChanged: (BOOL) gained
+{
+    DBG_PRINT( "focusChanged: gained %d\n", gained);
     NSView* nsview = [self contentView];
     if( ! [nsview isMemberOfClass:[NewtView class]] ) {
         return;
     }
     NewtView* view = (NewtView *) nsview;
     jobject javaWindowObject = [view getJavaWindowObject];
-    JNIEnv* env = [view getJNIEnv];
-    if (env==NULL || javaWindowObject == NULL) {
+    if (javaWindowObject == NULL) {
+        DBG_PRINT("focusChanged: null javaWindowObject\n");
+        return;
+    }
+    int shallBeDetached = 0;
+    JavaVM *jvmHandle = [view getJVMHandle];
+    JNIEnv* env = NewtCommon_GetJNIEnv(jvmHandle, [view getJVMVersion], &shallBeDetached);
+    if(NULL==env) {
+        DBG_PRINT("focusChanged: null JNIEnv\n");
         return;
     }
 
-    (*env)->CallVoidMethod(env, javaWindowObject, focusChangedID, JNI_FALSE);
+    (*env)->CallVoidMethod(env, javaWindowObject, focusChangedID, JNI_FALSE, (gained == YES) ? JNI_TRUE : JNI_FALSE);
+
+    if (shallBeDetached) {
+        (*jvmHandle)->DetachCurrentThread(jvmHandle);
+    }
 }
 
 @end

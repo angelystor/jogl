@@ -29,45 +29,39 @@
 package jogamp.opengl.egl;
 
 import java.util.*;
-import jogamp.opengl.*;
 
 public class EGLES2DynamicLibraryBundleInfo extends EGLDynamicLibraryBundleInfo {
-    static List/*<String>*/ glueLibNames;
-    static {
-        glueLibNames = new ArrayList();
-        glueLibNames.addAll(GLDynamicLibraryBundleInfo.getGlueLibNamesPreload());
-        glueLibNames.add("jogl_es2");
-    }
-  
     protected EGLES2DynamicLibraryBundleInfo() {
         super();
     }
 
-    public List getToolLibNames() {
-        List/*<List>*/ libNames = new ArrayList();
+    public List<List<String>> getToolLibNames() {
+        final List<List<String>> libsList = new ArrayList<List<String>>();
+        {
+            final List<String> libsGL = new ArrayList<String>();
+            
+            // GLESv2
+            libsGL.add("GLESv2");
+            libsGL.add("libGLESv2.so");
+            // this is the default lib name, according to the spec 
+            libsGL.add("libGLESv2.so.2");
 
-        List/*<String>*/ glesLibNames = new ArrayList();
-        glesLibNames.add("GLES20");
-        glesLibNames.add("GLESv2");
-        glesLibNames.add("GLESv2_CM");
-        // for windows distributions using the 'unlike' lib prefix
-        // where our tool does not add it.
-        glesLibNames.add("libGLES20"); 
-        glesLibNames.add("libGLESv2");
-        glesLibNames.add("libGLESv2_CM");
-        // last but not least, we may even use the desktop GL library,
-        // which would be eg Mesa + Gallium EGL ..
-        glesLibNames.add("libGL.so.1");
-        glesLibNames.add("libGL.so");
-        glesLibNames.add("GL");
+            // alternative names
+            libsGL.add("GLES20");
+            libsGL.add("GLESv2_CM");
 
-        libNames.add(glesLibNames);
-        libNames.add(getEGLLibNamesList());
-        return libNames;
-    }
-
-    public List/*<String>*/ getGlueLibNames() {
-        return glueLibNames;
-    }
+            // for windows distributions using the 'unlike' lib prefix
+            // where our tool does not add it.
+            libsGL.add("libGLESv2");
+            libsGL.add("libGLESv2_CM");
+            libsGL.add("libGLES20"); 
+    
+            libsList.add(libsGL);
+        }
+        libsList.add(getEGLLibNamesList());
+        
+        return libsList;
+    }    
+    
 }
 

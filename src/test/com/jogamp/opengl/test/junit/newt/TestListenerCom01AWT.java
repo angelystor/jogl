@@ -28,37 +28,24 @@
  
 package com.jogamp.opengl.test.junit.newt;
 
-import java.lang.reflect.*;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-
 import org.junit.Assert;
-import org.junit.Before;
 import org.junit.BeforeClass;
-import org.junit.After;
-import org.junit.AfterClass;
 import org.junit.Test;
 
-import java.awt.Button;
-import java.awt.BorderLayout;
-import java.awt.Canvas;
 import java.awt.Frame;
 
 import javax.media.opengl.*;
-import javax.media.nativewindow.*;
 
 import com.jogamp.opengl.util.Animator;
 import com.jogamp.newt.*;
-import com.jogamp.newt.event.*;
 import com.jogamp.newt.opengl.*;
 import com.jogamp.newt.awt.NewtCanvasAWT;
 
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
 
 import com.jogamp.opengl.test.junit.util.*;
-import com.jogamp.opengl.test.junit.jogl.demos.es1.RedSquare;
-import com.jogamp.opengl.test.junit.jogl.demos.gl2.gears.Gears;
+import com.jogamp.opengl.test.junit.jogl.demos.es2.GearsES2;
 
 public class TestListenerCom01AWT extends UITestCase {
     static int width, height;
@@ -67,13 +54,12 @@ public class TestListenerCom01AWT extends UITestCase {
 
     @BeforeClass
     public static void initClass() {
-        GLProfile.initSingleton(true);
         width  = 640;
         height = 480;
     }
 
     @Test
-    public void testListenerStringPassingAndOrder() throws InterruptedException {
+    public void testListenerStringPassingAndOrder() throws InterruptedException, InvocationTargetException {
         // setup NEWT GLWindow ..
         GLWindow glWindow = GLWindow.create(new GLCapabilities(null));
         Assert.assertNotNull(glWindow);
@@ -81,7 +67,7 @@ public class TestListenerCom01AWT extends UITestCase {
 
         System.out.println("durationPerTest "+durationPerTest);
 
-        GLEventListener demo = new Gears();
+        GLEventListener demo = new GearsES2();
         setDemoFields(demo, glWindow, false);
         glWindow.addGLEventListener(demo);
 
@@ -103,10 +89,13 @@ public class TestListenerCom01AWT extends UITestCase {
 
         // attach NEWT GLWindow to AWT Canvas
         NewtCanvasAWT newtCanvasAWT = new NewtCanvasAWT(glWindow);
-        Frame frame = new Frame("AWT Parent Frame");
+        final Frame frame = new Frame("AWT Parent Frame");
         frame.add(newtCanvasAWT);
         frame.setSize(width, height);
-        frame.setVisible(true);
+        javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                frame.setVisible(true);
+            }});
 
         Animator animator1 = new Animator(glWindow);
         animator1.setUpdateFPSFrames(1, null);        
@@ -119,14 +108,17 @@ public class TestListenerCom01AWT extends UITestCase {
         animator1.stop();
         Assert.assertEquals(false, animator1.isAnimating());
 
-        frame.dispose();
+        javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                frame.dispose();
+            }});
         glWindow.destroy();
     }
 
     public static void setDemoFields(GLEventListener demo, GLWindow glWindow, boolean debug) {
         Assert.assertNotNull(demo);
         Assert.assertNotNull(glWindow);
-        Window window = glWindow.getWindow();
+        Window window = glWindow.getDelegatedWindow();
         if(debug) {
             MiscUtils.setFieldIfExists(demo, "glDebug", true);
             MiscUtils.setFieldIfExists(demo, "glTrace", true);

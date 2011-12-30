@@ -70,7 +70,7 @@ public class JoglVersion extends JogampVersion {
 
     public static StringBuilder getGLInfo(GL gl, StringBuilder sb) {
         AbstractGraphicsDevice device = gl.getContext().getGLDrawable().getNativeSurface()
-                                            .getGraphicsConfiguration().getNativeGraphicsConfiguration().getScreen().getDevice();
+                                            .getGraphicsConfiguration().getScreen().getDevice();
         if(null==sb) {
             sb = new StringBuilder();
         }
@@ -101,6 +101,8 @@ public class JoglVersion extends JogampVersion {
         sb.append(Platform.getNewline());
         sb.append("              ").append(ctx.getPlatformExtensionsString());
         sb.append(Platform.getNewline());
+        sb.append("GLSL          ").append(gl.hasGLSL()).append(", shader-compiler: ").append(gl.isFunctionAvailable("glCompileShader"));
+        sb.append(Platform.getNewline());
         sb.append(VersionUtil.SEPERATOR);
 
         return sb;
@@ -109,7 +111,7 @@ public class JoglVersion extends JogampVersion {
     public static void main(String args[]) {
         System.err.println(VersionUtil.getPlatformInfo());
         System.err.println(GlueGenVersion.getInstance());
-        System.err.println(NativeWindowVersion.getInstance());
+        // System.err.println(NativeWindowVersion.getInstance());
         System.err.println(JoglVersion.getInstance());
     }
 }

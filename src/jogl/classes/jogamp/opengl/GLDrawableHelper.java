@@ -40,19 +40,29 @@
 
 package jogamp.opengl;
 
-import java.util.*;
-import javax.media.opengl.*;
+import java.util.ArrayList;
+import java.util.HashSet;
+
+import javax.media.opengl.GLAnimatorControl;
+import javax.media.opengl.GLAutoDrawable;
+import javax.media.opengl.GLContext;
+import javax.media.opengl.GLDrawable;
+import javax.media.opengl.GLEventListener;
+import javax.media.opengl.GLException;
+import javax.media.opengl.GLRunnable;
+
+import com.jogamp.opengl.util.Animator;
 
 /** Encapsulates the implementation of most of the GLAutoDrawable's
     methods to be able to share it between GLCanvas and GLJPanel. */
 
 public class GLDrawableHelper {
   protected static final boolean DEBUG = GLDrawableImpl.DEBUG;
-  private static final boolean VERBOSE = Debug.verbose();
   private Object listenersLock = new Object();
   private ArrayList<GLEventListener> listeners;
   private HashSet<GLEventListener> listenersToBeInit;
   private boolean autoSwapBufferMode;
+  private Thread skipContextReleaseThread;
   private Object glRunnablesLock = new Object();
   private ArrayList<GLRunnable> glRunnables;
   private GLAnimatorControl animatorCtrl;
@@ -67,6 +77,7 @@ public class GLDrawableHelper {
         listenersToBeInit = new HashSet<GLEventListener>();
     }
     autoSwapBufferMode = true;
+    skipContextReleaseThread = null;
     synchronized(glRunnablesLock) {
         glRunnables = new ArrayList<GLRunnable>();
     }
@@ -131,7 +142,7 @@ public class GLDrawableHelper {
       if(listenersToBeInit.remove(l)) {
           l.init(drawable);
           if(sendReshape) {
-              reshape(l, drawable, 0, 0, drawable.getWidth(), drawable.getHeight(), true /* setViewport */);
+              reshape(l, drawable, 0, 0, drawable.getWidth(), drawable.getHeight(), true /* setViewport */, false);
           }
           return true;
       }
@@ -156,20 +167,30 @@ public class GLDrawableHelper {
   }
 
   public final void display(GLAutoDrawable drawable) {
-    synchronized(listenersLock) {
-        for (int i=0; i < listeners.size(); i++) {
-          final GLEventListener listener = listeners.get(i) ;
-          // GLEventListener may need to be init, 
-          // in case this one is added after the realization of the GLAutoDrawable
-          init( listener, drawable, true ) ; 
-          listener.display(drawable);
-        }
+    displayImpl(drawable);
+    if(!execGLRunnables(drawable)) {
+        displayImpl(drawable);  
     }
-    execGLRunnables(drawable);
+  }
+  private void displayImpl(GLAutoDrawable drawable) {
+      synchronized(listenersLock) {
+          for (int i=0; i < listeners.size(); i++) {
+            final GLEventListener listener = listeners.get(i) ;
+            // GLEventListener may need to be init, 
+            // in case this one is added after the realization of the GLAutoDrawable
+            init( listener, drawable, true ) ; 
+            listener.display(drawable);
+          }
+      }
   }
 
   private void reshape(GLEventListener listener, GLAutoDrawable drawable,
-                             int x, int y, int width, int height, boolean setViewport) {
+                       int x, int y, int width, int height, boolean setViewport, boolean checkInit) {
+    if(checkInit) {
+        // GLEventListener may need to be init, 
+        // in case this one is added after the realization of the GLAutoDrawable      
+        init( listener, drawable, false ) ;
+    }
     if(setViewport) {
         drawable.getGL().glViewport(x, y, width, height);
     }
@@ -179,12 +200,13 @@ public class GLDrawableHelper {
   public final void reshape(GLAutoDrawable drawable, int x, int y, int width, int height) {
     synchronized(listenersLock) {
         for (int i=0; i < listeners.size(); i++) {
-          reshape((GLEventListener) listeners.get(i), drawable, x, y, width, height, 0==i);
+          reshape((GLEventListener) listeners.get(i), drawable, x, y, width, height, 0==i, true);
         }
     }
   }
 
-  private void execGLRunnables(GLAutoDrawable drawable) {
+  private boolean execGLRunnables(GLAutoDrawable drawable) {
+    boolean res = true;
     if(glRunnables.size()>0) {
         // swap one-shot list asap
         ArrayList<GLRunnable> _glRunnables = null;
@@ -194,12 +216,14 @@ public class GLDrawableHelper {
                 glRunnables = new ArrayList<GLRunnable>();
             }
         }
+        
         if(null!=_glRunnables) {
             for (int i=0; i < _glRunnables.size(); i++) {
-              _glRunnables.get(i).run(drawable);
+              res = _glRunnables.get(i).run(drawable) && res;
             }
         }
     }
+    return res;
   }
 
   public final void setAnimator(GLAnimatorControl animator) throws GLException {
@@ -221,8 +245,16 @@ public class GLDrawableHelper {
     return ( null != animatorCtrl ) ? animatorCtrl.isStarted() && animatorCtrl.getThread() != Thread.currentThread() : false ;
   }
 
+  public final boolean isAnimatorRunning() {
+    return ( null != animatorCtrl ) ? animatorCtrl.isStarted() : false ;
+  }
+
   public final boolean isExternalAnimatorAnimating() {
     return ( null != animatorCtrl ) ? animatorCtrl.isAnimating() && animatorCtrl.getThread() != Thread.currentThread() : false ;
+  }
+
+  public final boolean isAnimatorAnimating() {
+    return ( null != animatorCtrl ) ? animatorCtrl.isAnimating() : false ;
   }
 
   public final void invoke(GLAutoDrawable drawable, boolean wait, GLRunnable glRunnable) {
@@ -262,15 +294,32 @@ public class GLDrawableHelper {
     }
   }
 
-  public final void setAutoSwapBufferMode(boolean onOrOff) {
-    autoSwapBufferMode = onOrOff;
+  public final void setAutoSwapBufferMode(boolean enable) {
+    autoSwapBufferMode = enable;
   }
 
   public final boolean getAutoSwapBufferMode() {
     return autoSwapBufferMode;
   }
 
-  private static final ThreadLocal perThreadInitAction = new ThreadLocal();
+  /**
+   * @param t the thread for which context release shall be skipped, usually the animation thread,
+   *          ie. {@link Animator#getThread()}.
+   * @deprecated this is an experimental feature, 
+   *             intended for measuring performance in regards to GL context switch
+   */
+  public final void setSkipContextReleaseThread(Thread t) {
+    skipContextReleaseThread = t;
+  }
+
+  /**
+   * @deprecated see {@link #setSkipContextReleaseThread(Thread)} 
+   */
+  public final Thread getSkipContextReleaseThread() {
+    return skipContextReleaseThread;
+  }
+
+  private static final ThreadLocal<Runnable> perThreadInitAction = new ThreadLocal<Runnable>();
 
   /** Principal helper method which runs a Runnable with the context
       made current. This could have been made part of GLContext, but a
@@ -299,27 +348,41 @@ public class GLDrawableHelper {
         return;
     }
 
-    if(null==initAction) {
-        // disposal case
-        if(!context.isCreated()) {
-            throw new GLException(Thread.currentThread().getName()+" GLDrawableHelper " + this + ".invokeGL(): Dispose case (no init action given): Native context is not created: "+context);
-        }
+    final boolean isDisposeAction = null==initAction ;
+    
+    if( isDisposeAction && !context.isCreated() ) {
+        throw new GLException(Thread.currentThread().getName()+" GLDrawableHelper " + this + ".invokeGL(): Dispose case (no init action given): Native context is not created: "+context);
     }
 
     // Support for recursive makeCurrent() calls as well as calling
     // other drawables' display() methods from within another one's
-    // FIXME: re-evaluate due to possible expensive TLS access ? 
-    GLContext lastContext    = GLContext.getCurrent();
-    Runnable  lastInitAction = (Runnable) perThreadInitAction.get();
+    int res = GLContext.CONTEXT_NOT_CURRENT;
+    GLContext lastContext = GLContext.getCurrent();
+    Runnable  lastInitAction = null;
     if (lastContext != null) {
-      lastContext.release();
+        if (lastContext == context) {
+            res = GLContext.CONTEXT_CURRENT;
+            lastContext = null;
+        } else {
+            lastInitAction = perThreadInitAction.get();
+            lastContext.release();
+        }
     }
   
-    int res = 0;
+    /**
+    long t0 = System.currentTimeMillis();
+    long td1 = 0; // makeCurrent
+    long tdR = 0; // render time
+    long td2 = 0; // swapBuffers
+    long td3 = 0; // release
+    boolean scr = true; */
+    
     try {
-      res = context.makeCurrent();
+      if (res == GLContext.CONTEXT_NOT_CURRENT) {
+          res = context.makeCurrent();
+      }
       if (res != GLContext.CONTEXT_NOT_CURRENT) {
-        if(null!=initAction) {
+        if(!isDisposeAction) {
             perThreadInitAction.set(initAction);
             if (res == GLContext.CONTEXT_CURRENT_NEW) {
               if (DEBUG) {
@@ -328,32 +391,38 @@ public class GLDrawableHelper {
               initAction.run();
             }
         }
+        // tdR = System.currentTimeMillis();        
+        // td1 = tdR - t0; // makeCurrent
         if(null!=runnable) {
-            if (DEBUG && VERBOSE) {
-              System.err.println("GLDrawableHelper " + this + ".invokeGL(): Running runnable");
-            }
             runnable.run();
-            if (autoSwapBufferMode && null != initAction) {
-              if (drawable != null) {
+            // td2 = System.currentTimeMillis();
+            // tdR = td2 - tdR; // render time
+            if (autoSwapBufferMode && !isDisposeAction && drawable != null) {
                 drawable.swapBuffers();
-              }
+                // td3 = System.currentTimeMillis();
+                // td2 = td3 - td2; // swapBuffers
             }
         }
       }
     } finally {
-      try {
-        if (res != GLContext.CONTEXT_NOT_CURRENT) {
-          context.release();
-        }
-      } catch (Exception e) {
+      if(res != GLContext.CONTEXT_NOT_CURRENT &&
+         (null == skipContextReleaseThread || Thread.currentThread()!=skipContextReleaseThread) ) {
+          try {
+              context.release();
+              // scr = false;
+          } catch (Exception e) {
+          }
       }
+      // td3 = System.currentTimeMillis() - td3; // release
       if (lastContext != null) {
         int res2 = lastContext.makeCurrent();
-        if (res2 == GLContext.CONTEXT_CURRENT_NEW) {
+        if (null != lastInitAction && res2 == GLContext.CONTEXT_CURRENT_NEW) {
           lastInitAction.run();
         }
       }
     }
+    // long td0 = System.currentTimeMillis() - t0;
+    // System.err.println("td0 "+td0+"ms, fps "+(1.0/(td0/1000.0))+", td-makeCurrent: "+td1+"ms, td-render "+tdR+"ms, td-swap "+td2+"ms, td-release "+td3+"ms, skip ctx release: "+scr);
   }
 
 }

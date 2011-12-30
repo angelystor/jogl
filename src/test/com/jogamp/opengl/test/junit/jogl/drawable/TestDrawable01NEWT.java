@@ -52,7 +52,6 @@ public class TestDrawable01NEWT extends UITestCase {
 
     @BeforeClass
     public static void initClass() {
-        GLProfile.initSingleton(true);
         glp = GLProfile.getDefault();
         Assert.assertNotNull(glp);
         factory = GLDrawableFactory.getFactory(glp);
@@ -99,7 +98,7 @@ public class TestDrawable01NEWT extends UITestCase {
         // Create native OpenGL resources .. XGL/WGL/CGL .. 
         // equivalent to GLAutoDrawable methods: setVisible(true)
         // 
-        GLCapabilities glCaps = (GLCapabilities) window.getGraphicsConfiguration().getNativeGraphicsConfiguration().getChosenCapabilities();
+        GLCapabilities glCaps = (GLCapabilities) window.getGraphicsConfiguration().getChosenCapabilities();
         Assert.assertNotNull(glCaps);
         Assert.assertTrue(glCaps.getGreenBits()>5);
         Assert.assertTrue(glCaps.getBlueBits()>5);

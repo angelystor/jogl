@@ -42,6 +42,7 @@ import javax.media.opengl.GLProfile;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.BeforeClass;
 
 import com.jogamp.newt.Display;
 import com.jogamp.newt.NewtFactory;
@@ -222,7 +223,7 @@ public class TestGLDebug00NEWT extends UITestCase {
                                         recSeverity== event.getDbgSeverity() ) {
                 received = true;                
             }
-            Thread.dumpStack();
+            // Thread.dumpStack();
         }        
     }
 }

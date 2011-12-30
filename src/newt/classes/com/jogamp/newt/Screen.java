@@ -120,12 +120,22 @@ public abstract class Screen {
     public abstract int getIndex();
 
     /**
-     * @return the current screen width
+     * @return the x position of the virtual top-left origin.
+     */
+    public abstract int getX();
+    
+    /**
+     * @return the y position of the virtual top-left origin.
+     */
+    public abstract int getY();
+    
+    /**
+     * @return the <b>rotated</b> virtual width.
      */
     public abstract int getWidth();
 
     /**
-     * @return the current screen height
+     * @return the <b>rotated</b> virtual height.
      */
     public abstract int getHeight();
 
@@ -151,24 +161,28 @@ public abstract class Screen {
     public abstract void removeScreenModeListener(ScreenModeListener sml);
 
     /** 
-     * Return a list of available {@link com.jogamp.newt.ScreenMode}s.
-     * @return a shallow copy of the internal immutable {@link com.jogamp.newt.ScreenMode}s,
-     * or null if not implemented for this native type {@link com.jogamp.newt.Display#getType()}.
+     * Return a list of available {@link com.jogamp.newt.ScreenMode ScreenMode}s.
+     * <p>
+     * If {@link com.jogamp.newt.ScreenMode ScreenMode}s are not supported for this 
+     * native type {@link com.jogamp.newt.Display#getType()}, it returns a list of size one with the current screen size.</p>
+     * 
+     * @return a shallow copy of the internal immutable {@link com.jogamp.newt.ScreenMode ScreenMode}s.
      */
-    public abstract List/*<ScreenMode>*/ getScreenModes();
+    public abstract List<ScreenMode> getScreenModes();
 
     /**
      * Return the original {@link com.jogamp.newt.ScreenMode}, as used at NEWT initialization.
-     * @return null if functionality not implemented,
-     * otherwise the original ScreenMode which is element of the list {@link #getScreenModes()}.
-     *
+     * @return original ScreenMode which is element of the list {@link #getScreenModes()}.
      */
     public abstract ScreenMode getOriginalScreenMode();
 
     /**
      * Return the current {@link com.jogamp.newt.ScreenMode}.
-     * @return null if functionality not implemented,
-     * otherwise the current ScreenMode which is element of the list {@link #getScreenModes()}.
+     * <p>
+     * If {@link com.jogamp.newt.ScreenMode ScreenMode}s are not supported for this 
+     * native type {@link com.jogamp.newt.Display#getType()}, it returns one with the current screen size. </p>
+     * 
+     * @return current ScreenMode which is element of the list {@link #getScreenModes()}.
      */
     public abstract ScreenMode getCurrentScreenMode();
 
@@ -180,7 +194,7 @@ public abstract class Screen {
     public abstract boolean setCurrentScreenMode(ScreenMode screenMode);
 
     // Global Screens
-    protected static ArrayList screenList = new ArrayList();
+    protected static ArrayList<Screen> screenList = new ArrayList<Screen>();
     protected static int screensActive = 0;
 
     /**
@@ -220,10 +234,10 @@ public abstract class Screen {
         return null;
     }
     /** Returns the global display collection */
-    public static Collection getAllScreens() {
-        ArrayList list;
+    public static Collection<Screen> getAllScreens() {
+        ArrayList<Screen> list;
         synchronized(screenList) {
-            list = (ArrayList) screenList.clone();
+            list = (ArrayList<Screen>) screenList.clone();
         }
         return list;
     }

@@ -28,13 +28,31 @@
  
 package com.jogamp.opengl.cg;
 
+import com.jogamp.common.jvm.JNILibLoaderBase;
 import com.jogamp.common.os.DynamicLibraryBundleInfo;
+import com.jogamp.common.os.Platform;
+import com.jogamp.common.util.cache.TempJarCache;
+
+import java.security.AccessController;
+import java.security.PrivilegedAction;
 import java.util.*;
 
 public class CgDynamicLibraryBundleInfo implements DynamicLibraryBundleInfo {
-    private static List/*<String>*/ glueLibNames;
+    private static List<String> glueLibNames;
     static {
-        glueLibNames = new ArrayList();
+        AccessController.doPrivileged(new PrivilegedAction<Object>() {
+            public Object run() {
+                Platform.initSingleton();
+                
+                if(TempJarCache.isInitialized()) {
+                   // Cg class and natives are available in their single atomic JAR files only 
+                   JNILibLoaderBase.addNativeJarLibs(CgDynamicLibraryBundleInfo.class, "jogl_cg", null);
+                }
+                return null;
+            }
+        });
+        
+        glueLibNames = new ArrayList<String>();
         // glueLibNames.addAll(getGlueLibNamesPreload());
         glueLibNames.add("jogl_cg");
     }
@@ -54,25 +72,33 @@ public class CgDynamicLibraryBundleInfo implements DynamicLibraryBundleInfo {
     public boolean shallLookupGlobal() { return false; }
 
     /** Tool has none **/
-    public final List getToolGetProcAddressFuncNameList() {
+    public final List<String> getToolGetProcAddressFuncNameList() {
         return null;
     }
 
     /** Tool has none **/
-    public final long toolDynamicLookupFunction(long toolGetProcAddressHandle, String funcName) {
+    public final long toolGetProcAddress(long toolGetProcAddressHandle, String funcName) {
         return 0;
     }
-
-    public List/*<List<String>>*/ getToolLibNames() {
-        List/*<List>*/ libNamesList = new ArrayList();
-
-        libNamesList.add("Cg");
-        libNamesList.add("CgGL");
-
-        return libNamesList;
+    
+    public boolean useToolGetProcAdressFirst(String funcName) {
+        return false;
     }
 
-    public final List/*<String>*/ getGlueLibNames() {
+    public List<List<String>> getToolLibNames() {
+        final List<List<String>> libsList = new ArrayList<List<String>>();
+        final List<String> libsCg = new ArrayList<String>();
+        libsCg.add("Cg");
+        libsList.add(libsCg);
+        
+        final List<String> libsCgGL = new ArrayList<String>();
+        libsCgGL.add("CgGL");
+        libsList.add(libsCgGL);
+
+        return libsList;
+    }
+
+    public final List<String> getGlueLibNames() {
         return glueLibNames;
     }
 }

@@ -29,10 +29,8 @@ package com.jogamp.graph.font;
 
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.security.AccessController;
-import java.security.PrivilegedAction;
 
 import com.jogamp.common.util.ReflectionUtil;
 
@@ -81,22 +79,7 @@ public class FontFactory {
     }
 
     public static final Font get(final URL url) throws IOException {
-        final IOException[] ioeA = new IOException[1];
-        
-        Font f = (Font) AccessController.doPrivileged(new PrivilegedAction() {
-            public Object run() {
-                try {
-                    return fontConstr.create(url);
-                } catch (IOException ioe) {
-                    ioeA[0] = ioe;
-                }
-                return null;
-            }
-        });
-        if(null != ioeA[0]) {
-            throw ioeA[0];
-        }
-        return f;
+        return fontConstr.create(url);
     }    
     
     public static boolean isPrintableChar( char c ) {

@@ -28,7 +28,7 @@
  
 package javax.media.nativewindow.util;
 
-public class Rectangle implements Cloneable, RectangleReadOnly {
+public class Rectangle implements Cloneable, RectangleImmutable {
     int x;
     int y;
     int width;
@@ -44,7 +44,11 @@ public class Rectangle implements Cloneable, RectangleReadOnly {
         this.width=width;
         this.height=height;
     }
-
+    
+    public Object cloneMutable() {
+      return clone();
+    }
+  
     protected Object clone() {
         try {
             return super.clone();
@@ -53,10 +57,10 @@ public class Rectangle implements Cloneable, RectangleReadOnly {
         }
     }
 
-    public int getX() { return x; }
-    public int getY() { return y; }
-    public int getWidth() { return width; }
-    public int getHeight() { return height; }
+    public final int getX() { return x; }
+    public final int getY() { return y; }
+    public final int getWidth() { return width; }
+    public final int getHeight() { return height; }
     public void setX(int x) { this.x = x; }
     public void setY(int y) { this.y = y; }
     public void setWidth(int width) { this.width = width; }

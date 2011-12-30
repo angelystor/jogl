@@ -40,33 +40,39 @@
 
 package jogamp.opengl.x11.glx;
 
-import java.nio.*;
-import java.util.*;
+import java.nio.ByteBuffer;
+import java.nio.IntBuffer;
+import java.util.HashMap;
+import java.util.Map;
 
-import javax.media.opengl.*;
-import javax.media.nativewindow.*;
-import javax.media.nativewindow.x11.X11GraphicsDevice;
+import javax.media.nativewindow.AbstractGraphicsConfiguration;
+import javax.media.nativewindow.AbstractGraphicsDevice;
+import javax.media.nativewindow.NativeSurface;
+import javax.media.opengl.GLCapabilitiesImmutable;
+import javax.media.opengl.GLContext;
+import javax.media.opengl.GLException;
+import javax.media.opengl.GLProfile;
 
-import com.jogamp.common.util.VersionNumber;
-import jogamp.opengl.*;
+import jogamp.nativewindow.x11.X11Lib;
+import jogamp.nativewindow.x11.X11Util;
+import jogamp.opengl.GLContextImpl;
+import jogamp.opengl.GLDrawableImpl;
+
+import com.jogamp.common.nio.Buffers;
 import com.jogamp.gluegen.runtime.ProcAddressTable;
 import com.jogamp.gluegen.runtime.opengl.GLProcAddressResolver;
-import jogamp.nativewindow.x11.X11Util;
 
 public abstract class X11GLXContext extends GLContextImpl {
   protected static final boolean TRACE_CONTEXT_CURRENT = false; // true;
 
   private static final Map<String, String> functionNameMap;
   private static final Map<String, String> extensionNameMap;
-  private VersionNumber glXVersion;
-  private boolean glXVersionOneThreeCapable;
-  private boolean glXQueryExtensionsStringInitialized;
-  private boolean glXQueryExtensionsStringAvailable;
-  private GLXExt glXExt;
+  private GLXExt _glXExt;
   // Table that holds the addresses of the native C-language entry points for
   // GLX extension functions.
   private GLXExtProcAddressTable glXExtProcAddressTable;
   private int hasSwapIntervalSGI = 0;
+  private int hasSwapGroupNV = 0;
 
   // This indicates whether the context we have created is indirect
   // and therefore requires the toolkit to be locked around all GL
@@ -88,15 +94,14 @@ public abstract class X11GLXContext extends GLContextImpl {
     super(drawable, shareWith);
   }
   
-  protected void resetState() {
-    glXVersion = null;
-    glXVersionOneThreeCapable = false;
-    glXQueryExtensionsStringInitialized=false;
-    glXQueryExtensionsStringAvailable=false;
-    // no inner state glXExt=null;
+  @Override
+  protected void resetStates() {
+    // no inner state _glXExt=null;
     glXExtProcAddressTable = null;
     hasSwapIntervalSGI = 0;
+    hasSwapGroupNV = 0;
     isDirect = false;
+    super.resetStates();
   }
 
   public final ProcAddressTable getPlatformExtProcAddressTable() {
@@ -112,29 +117,20 @@ public abstract class X11GLXContext extends GLContextImpl {
   }
 
   public GLXExt getGLXExt() {
-    if (glXExt == null) {
-      glXExt = new GLXExtImpl(this);
+    if (_glXExt == null) {
+      _glXExt = new GLXExtImpl(this);
     }
-    return glXExt;
+    return _glXExt;
   }
 
   protected Map<String, String> getFunctionNameMap() { return functionNameMap; }
 
   protected Map<String, String> getExtensionNameMap() { return extensionNameMap; }
 
-  public final boolean isGLXVersionGreaterEqualOneThree() {
-    if(null == glXVersion) {
-        X11GLXDrawableFactory factory = (X11GLXDrawableFactory)drawable.getFactoryImpl();
-
-        X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)drawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration();
-        X11GraphicsDevice device = (X11GraphicsDevice) config.getScreen().getDevice();
-
-        glXVersion = factory.getGLXVersion(device);
-        glXVersionOneThreeCapable = ( null != glXVersion ) ? glXVersion.compareTo(X11GLXDrawableFactory.versionOneThree) >= 0 : false ;
-    }
-    return glXVersionOneThreeCapable;
+  protected final boolean isGLXVersionGreaterEqualOneThree() {
+    return ((X11GLXDrawableFactory)drawable.getFactoryImpl()).isGLXVersionGreaterEqualOneThree(drawable.getNativeSurface().getGraphicsConfiguration().getScreen().getDevice());      
   }
-
+  
   public final boolean isGLReadDrawableAvailable() {
     return isGLXVersionGreaterEqualOneThree();
   }
@@ -145,10 +141,10 @@ public abstract class X11GLXContext extends GLContextImpl {
     try {
         if(TRACE_CONTEXT_CURRENT) {
             Throwable t = new Throwable(Thread.currentThread()+" - glXMakeContextCurrent("+toHexString(dpy)+", "+
-                    toHexString(writeDrawable)+", "+toHexString(readDrawable)+", "+toHexString(ctx)+") - GLX >= 1.3 "+ glXVersionOneThreeCapable);
+                    toHexString(writeDrawable)+", "+toHexString(readDrawable)+", "+toHexString(ctx)+") - GLX >= 1.3 "+ isGLXVersionGreaterEqualOneThree());
             t.printStackTrace();
         }
-        if ( glXVersionOneThreeCapable ) {
+        if ( isGLXVersionGreaterEqualOneThree() ) {
             res = GLX.glXMakeContextCurrent(dpy, writeDrawable, readDrawable, ctx);
         } else if ( writeDrawable == readDrawable ) {
             res = GLX.glXMakeCurrent(dpy, writeDrawable, ctx);
@@ -170,13 +166,26 @@ public abstract class X11GLXContext extends GLContextImpl {
   }
 
   protected void destroyContextARBImpl(long ctx) {
-    X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)drawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration();
+    X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)drawable.getNativeSurface().getGraphicsConfiguration();
     long display = config.getScreen().getDevice().getHandle();
 
     glXMakeContextCurrent(display, 0, 0, 0);
     GLX.glXDestroyContext(display, ctx);
   }
 
+  private static final int ctx_arb_attribs_idx_major = 0;
+  private static final int ctx_arb_attribs_idx_minor = 2;
+  private static final int ctx_arb_attribs_idx_flags = 6;
+  private static final int ctx_arb_attribs_idx_profile = 8;
+  private static final int ctx_arb_attribs_rom[] = {
+        /*  0 */ GLX.GLX_CONTEXT_MAJOR_VERSION_ARB, 0,
+        /*  2 */ GLX.GLX_CONTEXT_MINOR_VERSION_ARB, 0,
+        /*  4 */ GLX.GLX_RENDER_TYPE,               GLX.GLX_RGBA_TYPE, // default
+        /*  6 */ GLX.GLX_CONTEXT_FLAGS_ARB,         0,
+        /*  8 */ 0,                                 0,
+        /* 10 */ 0
+    };
+    
   protected long createContextARBImpl(long share, boolean direct, int ctp, int major, int minor) {
     updateGLXProcAddressTable();
     GLXExt _glXExt = getGLXExt();
@@ -193,47 +202,40 @@ public abstract class X11GLXContext extends GLContextImpl {
 
     long ctx=0;
 
-    final int idx_flags = 6;
-    final int idx_profile = 8;
-
-    int attribs[] = {
-        /*  0 */ GLX.GLX_CONTEXT_MAJOR_VERSION_ARB, major,
-        /*  2 */ GLX.GLX_CONTEXT_MINOR_VERSION_ARB, minor,
-        /*  4 */ GLX.GLX_RENDER_TYPE,               GLX.GLX_RGBA_TYPE, // default
-        /*  6 */ GLX.GLX_CONTEXT_FLAGS_ARB,         0,
-        /*  8 */ 0,                                 0,
-        /* 10 */ 0
-    };
-
+    IntBuffer attribs = Buffers.newDirectIntBuffer(ctx_arb_attribs_rom);
+    attribs.put(ctx_arb_attribs_idx_major + 1, major);
+    attribs.put(ctx_arb_attribs_idx_minor + 1, minor);
+    
     if ( major > 3 || major == 3 && minor >= 2  ) {
-        // FIXME: Verify with a None drawable binding (default framebuffer)
-        attribs[idx_profile+0]  = GLX.GLX_CONTEXT_PROFILE_MASK_ARB;
+        attribs.put(ctx_arb_attribs_idx_profile + 0, GLX.GLX_CONTEXT_PROFILE_MASK_ARB);
         if( ctBwdCompat ) {
-            attribs[idx_profile+1]  = GLX.GLX_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB;
+            attribs.put(ctx_arb_attribs_idx_profile + 1, GLX.GLX_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB);
         } else {
-            attribs[idx_profile+1]  = GLX.GLX_CONTEXT_CORE_PROFILE_BIT_ARB;
+            attribs.put(ctx_arb_attribs_idx_profile + 1, GLX.GLX_CONTEXT_CORE_PROFILE_BIT_ARB);
         } 
     } 
 
     if ( major >= 3 ) {
+        int flags = attribs.get(ctx_arb_attribs_idx_flags + 1);
         if( !ctBwdCompat && ctFwdCompat ) {
-            attribs[idx_flags+1] |= GLX.GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB;
+            flags |= GLX.GLX_CONTEXT_FORWARD_COMPATIBLE_BIT_ARB;
         }
         if( ctDebug) {
-            attribs[idx_flags+1] |= GLX.GLX_CONTEXT_DEBUG_BIT_ARB;
+            flags |= GLX.GLX_CONTEXT_DEBUG_BIT_ARB;
         }
+        attribs.put(ctx_arb_attribs_idx_flags + 1, flags);
     }
 
-    X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)drawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration();
+    X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)drawable.getNativeSurface().getGraphicsConfiguration();
     AbstractGraphicsDevice device = config.getScreen().getDevice();
     long display = device.getHandle();
 
     try {
         // critical path, a remote display might not support this command,
         // hence we need to catch the X11 Error within this block.
-        X11Util.XSync(display, false);
-        ctx = _glXExt.glXCreateContextAttribsARB(display, config.getFBConfig(), share, direct, attribs, 0);
-        X11Util.XSync(display, false);
+        X11Lib.XSync(display, false);
+        ctx = _glXExt.glXCreateContextAttribsARB(display, config.getFBConfig(), share, direct, attribs);
+        X11Lib.XSync(display, false);
     } catch (RuntimeException re) {
         if(DEBUG) {
           Throwable t = new Throwable("Info: X11GLXContext.createContextARBImpl glXCreateContextAttribsARB failed with "+getGLVersion(major, minor, ctp, "@creation"), re);
@@ -249,12 +251,8 @@ public abstract class X11GLXContext extends GLContextImpl {
             glXMakeContextCurrent(display, 0, 0, 0);
             GLX.glXDestroyContext(display, ctx);
             ctx = 0;
-        } else {
-            if (DEBUG) {
-                System.err.println(getThreadName() + ": createContextARBImpl: OK "+getGLVersion(major, minor, ctp, "@creation")+", share "+share+", direct "+direct);
-            }
-            // the following is issued by the caller 'GLContextImpl.createContextARB()'
-            // setGLFunctionAvailability(true, major, minor, ctp);
+        } else if (DEBUG) {
+            System.err.println(getThreadName() + ": createContextARBImpl: OK "+getGLVersion(major, minor, ctp, "@creation")+", share "+share+", direct "+direct);
         }
     } else if (DEBUG) {
         System.err.println(getThreadName() + ": createContextARBImpl: NO "+getGLVersion(major, minor, ctp, "@creation"));
@@ -263,32 +261,29 @@ public abstract class X11GLXContext extends GLContextImpl {
     return ctx;
   }
 
-  protected boolean createImpl() {
+  protected boolean createImpl(GLContextImpl shareWith) {
       // covers the whole context creation loop incl createContextARBImpl and destroyContextARBImpl
       X11Util.setX11ErrorHandler(true, true);
       try {
-          return createImplRaw();
+          return createImplRaw(shareWith);
       } finally {
           X11Util.setX11ErrorHandler(false, false);
       }
   }
 
-  private boolean createImplRaw() {
+  private boolean createImplRaw(GLContextImpl shareWith) {
     boolean direct = true; // try direct always
     isDirect = false; // fall back
 
     X11GLXDrawableFactory factory = (X11GLXDrawableFactory)drawable.getFactoryImpl();
-    X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)drawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration();
+    X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)drawable.getNativeSurface().getGraphicsConfiguration();
     AbstractGraphicsDevice device = config.getScreen().getDevice();
     X11GLXContext sharedContext = (X11GLXContext) factory.getOrCreateSharedContextImpl(device);
     long display = device.getHandle();
 
-    isGLReadDrawableAvailable(); // trigger setup glXVersionOneThreeCapable
-
-    X11GLXContext other = (X11GLXContext) GLContextShareSet.getShareContext(this);
     long share = 0;
-    if (other != null) {
-      share = other.getHandle();
+    if (shareWith != null) {
+      share = shareWith.getHandle();
       if (share == 0) {
         throw new GLException("GLContextShareSet returned an invalid OpenGL context");
       }
@@ -375,7 +370,7 @@ public abstract class X11GLXContext extends GLContextImpl {
         if(glp.isGL3()) {
           glXMakeContextCurrent(display, 0, 0, 0);
           GLX.glXDestroyContext(display, temp_ctx);
-          throw new GLException("X11GLXContext.createContextImpl failed, but context > GL2 requested "+getGLVersion()+", ");
+          throw new GLException("X11GLXContext.createContextImpl ctx !ARB, context > GL2 requested - requested: "+glp+", current: "+getGLVersion()+", ");
         }
         if(DEBUG) {
           System.err.println("X11GLXContext.createContextImpl failed, fall back to !ARB context "+getGLVersion());
@@ -399,7 +394,7 @@ public abstract class X11GLXContext extends GLContextImpl {
     return true;
   }
 
-  protected void makeCurrentImpl(boolean newCreated) throws GLException {
+  protected void makeCurrentImpl() throws GLException {
     long dpy = drawable.getNativeSurface().getDisplayHandle();
 
     if (GLX.glXGetCurrentContext() != contextHandle) {
@@ -410,13 +405,6 @@ public abstract class X11GLXContext extends GLContextImpl {
             }
         } finally {
             X11Util.setX11ErrorHandler(false, false);
-        }
-        if (DEBUG && newCreated) {
-            System.err.println(getThreadName() + ": glXMakeCurrent(display " + 
-                               toHexString(dpy)+
-                               ", drawable " + toHexString(drawable.getHandle()) +
-                               ", drawableRead " + toHexString(drawableRead.getHandle()) +
-                               ", context " + toHexString(contextHandle) + ") succeeded");
         }
     }
   }
@@ -434,17 +422,7 @@ public abstract class X11GLXContext extends GLContextImpl {
   }
 
   protected void destroyImpl() throws GLException {
-    long display = drawable.getNativeSurface().getDisplayHandle();
-    if (DEBUG) {
-      System.err.println("glXDestroyContext(dpy " +
-                         toHexString(display)+
-                         ", ctx " +
-                         toHexString(contextHandle) + ")");
-    }
-    GLX.glXDestroyContext(display, contextHandle);
-    if (DEBUG) {
-      System.err.println("!!! Destroyed OpenGL context " + contextHandle);
-    }
+    GLX.glXDestroyContext(drawable.getNativeSurface().getDisplayHandle(), contextHandle);
   }
 
   protected void copyImpl(GLContext source, int mask) throws GLException {
@@ -459,15 +437,12 @@ public abstract class X11GLXContext extends GLContextImpl {
   }
 
   protected final void updateGLXProcAddressTable() {
-    AbstractGraphicsConfiguration aconfig = drawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration();
-    AbstractGraphicsDevice adevice = aconfig.getScreen().getDevice();
-    String key = adevice.getUniqueID();
+    final AbstractGraphicsConfiguration aconfig = drawable.getNativeSurface().getGraphicsConfiguration();
+    final AbstractGraphicsDevice adevice = aconfig.getScreen().getDevice();
+    final String key = "GLX-"+adevice.getUniqueID();
     if (DEBUG) {
       System.err.println(getThreadName() + ": !!! Initializing GLX extension address table: "+key);
     }
-    glXQueryExtensionsStringInitialized = false;
-    glXQueryExtensionsStringAvailable = false;
-
     ProcAddressTable table = null;
     synchronized(mappedContextTypeObjectLock) {
         table = mappedGLXProcAddress.get( key );
@@ -492,35 +467,52 @@ public abstract class X11GLXContext extends GLContextImpl {
     }
   }
 
-  public synchronized String getPlatformExtensionsString() {
-    if (!glXQueryExtensionsStringInitialized) {
-      glXQueryExtensionsStringAvailable =
-        getDrawableImpl().getGLDynamicLookupHelper().dynamicLookupFunction("glXQueryExtensionsString") != 0;
-      glXQueryExtensionsStringInitialized = true;
+  protected final StringBuffer getPlatformExtensionsStringImpl() {
+    StringBuffer sb = new StringBuffer();
+    if (DEBUG) {
+      System.err.println("!!! GLX Version client version "+ GLXUtil.getClientVersionNumber()+
+                         ", server: "+         
+        ((X11GLXDrawableFactory)drawable.getFactoryImpl()).getGLXVersionNumber(drawable.getNativeSurface().getGraphicsConfiguration().getScreen().getDevice()));
     }
-    if (glXQueryExtensionsStringAvailable) {
-        NativeSurface ns = drawable.getNativeSurface();
-        String ret = GLX.glXQueryExtensionsString(ns.getDisplayHandle(), ns.getScreenIndex());
-        if (DEBUG) {
-          System.err.println("!!! GLX extensions: " + ret);
+    final NativeSurface ns = drawable.getNativeSurface();
+    if(((X11GLXDrawableFactory)drawable.getFactoryImpl()).isGLXVersionGreaterEqualOneOne(ns.getGraphicsConfiguration().getScreen().getDevice())) {
+        {
+            final String ret = GLX.glXGetClientString(ns.getDisplayHandle(), GLX.GLX_EXTENSIONS);
+            if (DEBUG) {
+              System.err.println("!!! GLX extensions (glXGetClientString): " + ret);
+            }
+            sb.append(ret).append(" ");
         }
-        return ret;
-    } else {
-      return "";
+        {
+            final String ret = GLX.glXQueryExtensionsString(ns.getDisplayHandle(), ns.getScreenIndex());
+            if (DEBUG) {
+              System.err.println("!!! GLX extensions (glXQueryExtensionsString): " + ret);
+            }
+            sb.append(ret).append(" ");
+        }
+        {
+            final String ret = GLX.glXQueryServerString(ns.getDisplayHandle(), ns.getScreenIndex(), GLX.GLX_EXTENSIONS);
+            if (DEBUG) {
+              System.err.println("!!! GLX extensions (glXQueryServerString): " + ret);
+            }
+            sb.append(ret).append(" ");
+        }
     }
+    return sb;
   }
 
   public boolean isExtensionAvailable(String glExtensionName) {
     if (glExtensionName.equals("GL_ARB_pbuffer") ||
         glExtensionName.equals("GL_ARB_pixel_format")) {
       return getGLDrawable().getFactory().canCreateGLPbuffer(
-          drawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration().getScreen().getDevice() );
+          drawable.getNativeSurface().getGraphicsConfiguration().getScreen().getDevice() );
     }
     return super.isExtensionAvailable(glExtensionName);
   }
 
+  @Override
   protected void setSwapIntervalImpl(int interval) {
-    X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)drawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration();
+    X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration)drawable.getNativeSurface().getGraphicsConfiguration();
     GLCapabilitiesImmutable glCaps = (GLCapabilitiesImmutable) config.getChosenCapabilities();
     if(!glCaps.isOnscreen()) return;
 
@@ -539,6 +531,66 @@ public abstract class X11GLXContext extends GLContextImpl {
     }
   }
 
+  private final int initSwapGroupImpl(GLXExt glXExt) {
+      if(0==hasSwapGroupNV) {
+        try {
+            hasSwapGroupNV = glXExt.isExtensionAvailable("GLX_NV_swap_group")?1:-1;
+        } catch (Throwable t) { hasSwapGroupNV=1; }
+        if(DEBUG) {
+            System.err.println("initSwapGroupImpl: hasSwapGroupNV: "+hasSwapGroupNV);
+        }
+      }
+      return hasSwapGroupNV;
+  }
+  
+  @Override
+  protected final boolean queryMaxSwapGroupsImpl(int[] maxGroups, int maxGroups_offset,
+                                                 int[] maxBarriers, int maxBarriers_offset) {
+      boolean res = false;
+      GLXExt glXExt = getGLXExt();
+      if (initSwapGroupImpl(glXExt)>0) {
+        final NativeSurface ns = drawable.getNativeSurface();
+        try {
+            if( glXExt.glXQueryMaxSwapGroupsNV(ns.getDisplayHandle(), ns.getScreenIndex(), 
+                                               maxGroups, maxGroups_offset,
+                                               maxBarriers, maxBarriers_offset) ) {
+                res = true;
+            }
+        } catch (Throwable t) { hasSwapGroupNV=-1; }
+      }
+      return res;
+  }
+  
+  @Override
+  protected final boolean joinSwapGroupImpl(int group) {
+      boolean res = false;
+      GLXExt glXExt = getGLXExt();
+      if (initSwapGroupImpl(glXExt)>0) {
+        try {
+            if( glXExt.glXJoinSwapGroupNV(drawable.getNativeSurface().getDisplayHandle(), drawable.getHandle(), group) ) {
+                currentSwapGroup = group;
+                res = true;
+            }
+        } catch (Throwable t) { hasSwapGroupNV=-1; }
+      }
+      return res;
+  }
+  
+  @Override
+  protected final boolean bindSwapBarrierImpl(int group, int barrier) {
+      boolean res = false;
+      GLXExt glXExt = getGLXExt();
+      if (initSwapGroupImpl(glXExt)>0) {
+        try {
+            if( glXExt.glXBindSwapBarrierNV(drawable.getNativeSurface().getDisplayHandle(), group, barrier) ) {
+                res = true;
+            }
+        } catch (Throwable t) { hasSwapGroupNV=-1; }
+      }
+      return res;  
+  }
+
+  @Override
   public ByteBuffer glAllocateMemoryNV(int arg0, float arg1, float arg2, float arg3) {
     return getGLXExt().glXAllocateMemoryNV(arg0, arg1, arg2, arg3);
   }
@@ -565,7 +617,7 @@ public abstract class X11GLXContext extends GLContextImpl {
 
   public String toString() {
     StringBuffer sb = new StringBuffer();
-    sb.append(getClass().getName());
+    sb.append(getClass().getSimpleName());
     sb.append(" [");
     super.append(sb);
     sb.append(", direct ");

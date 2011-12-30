@@ -51,6 +51,7 @@ import org.junit.BeforeClass;
 import org.junit.After;
 import org.junit.Test;
 
+import com.jogamp.opengl.test.junit.jogl.demos.gl2.OneTriangle;
 import com.jogamp.opengl.test.junit.util.UITestCase;
 import javax.media.nativewindow.AbstractGraphicsDevice;
 import javax.media.nativewindow.ProxySurface;
@@ -76,20 +77,31 @@ public class TestSWT02GLn extends UITestCase {
 
     @BeforeClass
     public static void startup() {
-        GLProfile.initSingleton( true );
         System.out.println( "GLProfile " + GLProfile.glAvailabilityToString() );
     }
 
     @Before
     public void init() {
-        display = new Display();
-        Assert.assertNotNull( display );
-        shell = new Shell( display );
+        final Display[] r = new Display[1];
+        final Shell[] s = new Shell[1];
+        SWTAccessor.invoke(true, new Runnable() {
+           public void run() {
+               r[0] = new Display();
+               s[0] = new Shell();
+           }
+        });
+        display = r[0];
+        shell = s[0];        
+        Assert.assertNotNull( display );        
         Assert.assertNotNull( shell );
-        shell.setLayout( new FillLayout() );
-        composite = new Composite( shell, SWT.NONE );
-        composite.setLayout( new FillLayout() );
-        Assert.assertNotNull( composite );
+        
+        SWTAccessor.invoke(true, new Runnable() {
+           public void run() {
+            shell.setLayout( new FillLayout() );
+            composite = new Composite( shell, SWT.NONE );
+            Assert.assertNotNull( composite );
+            composite.setLayout( new FillLayout() );
+           }});
     }
 
     @After
@@ -98,9 +110,12 @@ public class TestSWT02GLn extends UITestCase {
         Assert.assertNotNull( shell );
         Assert.assertNotNull( composite );
         try {
-            composite.dispose();
-            shell.dispose();
-            display.dispose();
+            SWTAccessor.invoke(true, new Runnable() {
+               public void run() {
+                composite.dispose();
+                shell.dispose();
+                display.dispose();
+               }});
         }
         catch( Throwable throwable ) {
             throwable.printStackTrace();
@@ -110,14 +125,25 @@ public class TestSWT02GLn extends UITestCase {
         shell = null;
         composite = null;
     }
-
+    
+    class CanvasCStr implements Runnable {
+           Canvas canvas;
+           
+           public void run() {
+               canvas = new Canvas( composite, SWT.NO_BACKGROUND);
+           }        
+    }
+    
     protected void runTestAGL( GLProfile glprofile ) throws InterruptedException {
         GLCapabilities caps = new GLCapabilities(glprofile);
         GLDrawableFactory factory = GLDrawableFactory.getFactory(glprofile);
         
         // need SWT.NO_BACKGROUND to prevent SWT from clearing the window
         // at the wrong times (we use glClear for this instead)
-        final Canvas canvas = new Canvas( composite, SWT.NO_BACKGROUND);
+        CanvasCStr canvasCstr = new CanvasCStr();
+        
+        SWTAccessor.invoke(true, canvasCstr);
+        final Canvas canvas = canvasCstr.canvas;        
         Assert.assertNotNull( canvas );
         
         SWTAccessor.setRealized(canvas, true);
@@ -128,7 +154,7 @@ public class TestSWT02GLn extends UITestCase {
         
         ProxySurface proxySurface = factory.createProxySurface(device, nativeWindowHandle, caps, null);
         Assert.assertNotNull( proxySurface );        
-        proxySurface.setSize( 640, 480 );
+        proxySurface.surfaceSizeChanged( 640, 480 );
         System.err.println("*** ProxySurface: " + proxySurface);
         final GLDrawable drawable = factory.createGLDrawable(proxySurface);
         Assert.assertNotNull( drawable );
@@ -151,7 +177,7 @@ public class TestSWT02GLn extends UITestCase {
                 if( GLContext.CONTEXT_NOT_CURRENT < glcontext.makeCurrent() ) {
                     glok=true;
                     GL2 gl = glcontext.getGL().getGL2();
-                    OneTriangle.setup( gl, rectangle );
+                    OneTriangle.setup( gl, rectangle.width, rectangle.height );
                     glcontext.release();
                 } else {
                     sizeMissing[0] = true;
@@ -169,10 +195,10 @@ public class TestSWT02GLn extends UITestCase {
                     glok=true;
                     GL2 gl = glcontext.getGL().getGL2();
                     if(sizeMissing[0]) {
-                        OneTriangle.setup( gl, rectangle );
+                        OneTriangle.setup( gl, rectangle.width, rectangle.height);
                         sizeMissing[0] = false;
                     }
-                    OneTriangle.render( gl, rectangle );
+                    OneTriangle.render( gl, rectangle.width, rectangle.height);
                     drawable.swapBuffers();
                     glcontext.release();
                 }

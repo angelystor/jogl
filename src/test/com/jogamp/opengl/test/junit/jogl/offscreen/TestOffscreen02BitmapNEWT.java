@@ -46,9 +46,13 @@ import javax.media.opengl.*;
 import javax.media.nativewindow.*;
 
 import com.jogamp.opengl.test.junit.util.UITestCase;
-import com.jogamp.opengl.test.junit.jogl.demos.es1.RedSquare;
+import com.jogamp.opengl.test.junit.jogl.demos.es1.RedSquareES1;
 import java.io.IOException;
 
+/**
+ * Using ES1 GL demo, since pixmap might not be hw accelerated, 
+ * hence it is possible to not have GLSL. 
+ */
 public class TestOffscreen02BitmapNEWT extends UITestCase {
     static GLProfile glpDefault;
     static GLDrawableFactory glDrawableFactory;
@@ -57,7 +61,6 @@ public class TestOffscreen02BitmapNEWT extends UITestCase {
 
     @BeforeClass
     public static void initClass() {
-        GLProfile.initSingleton(true);
         glpDefault = GLProfile.getDefault();
         Assert.assertNotNull(glpDefault);
         glDrawableFactory = GLDrawableFactory.getFactory(glpDefault);
@@ -97,7 +100,7 @@ public class TestOffscreen02BitmapNEWT extends UITestCase {
         Assert.assertNotNull(glWindow);
         glWindow.setVisible(true);
 
-        GLEventListener demo = new RedSquare();
+        GLEventListener demo = new RedSquareES1();
         WindowUtilNEWT.setDemoFields(demo, window, glWindow, false);
         glWindow.addGLEventListener(demo);
 
@@ -140,19 +143,15 @@ public class TestOffscreen02BitmapNEWT extends UITestCase {
         Assert.assertNotNull(glWindow);
         glWindow.setVisible(true);
 
-        GLWindow windowOnScreen = null;
         WindowListener wl=null;
         MouseListener ml=null;
         SurfaceUpdatedListener ul=null;
 
-        GLEventListener demo = new RedSquare();
+        GLEventListener demo = new RedSquareES1();
         Assert.assertNotNull(demo);
 
-        WindowUtilNEWT.run(glWindow, demo, windowOnScreen, wl, ml, ul, 2, true /*snapshot*/, false /*debug*/);
+        WindowUtilNEWT.run(glWindow, demo, null, wl, ml, ul, 2, true /*snapshot*/, false /*debug*/);
 
-        if(null!=windowOnScreen) {
-            windowOnScreen.destroy();
-        }
         if(null!=glWindow) {
             glWindow.destroy();
         }

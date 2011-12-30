@@ -47,6 +47,7 @@ import java.util.Map;
 
 import com.jogamp.common.os.DynamicLookupHelper;
 import com.jogamp.common.util.ReflectionUtil;
+import com.jogamp.common.util.locks.LockFactory;
 import com.jogamp.common.util.locks.RecursiveLock;
 import com.jogamp.gluegen.runtime.FunctionAddressResolver;
 import com.jogamp.gluegen.runtime.ProcAddressTable;
@@ -57,6 +58,7 @@ import javax.media.nativewindow.AbstractGraphicsConfiguration;
 import javax.media.nativewindow.AbstractGraphicsDevice;
 import javax.media.nativewindow.NativeSurface;
 import javax.media.opengl.GL;
+import javax.media.opengl.GL3;
 import javax.media.opengl.GLCapabilitiesImmutable;
 import javax.media.opengl.GLContext;
 import javax.media.opengl.GLDebugListener;
@@ -67,10 +69,8 @@ import javax.media.opengl.GLPipelineFactory;
 import javax.media.opengl.GLProfile;
 
 public abstract class GLContextImpl extends GLContext {
-  public static final boolean DEBUG = Debug.debug("GLContext");
-    
   // RecursiveLock maintains a queue of waiting Threads, ensuring the longest waiting thread will be notified at unlock.  
-  protected RecursiveLock lock = new RecursiveLock();
+  protected RecursiveLock lock = LockFactory.createRecursiveLock();
 
   /**
    * Context full qualified name: display_type + display_connection + major + minor + ctp.
@@ -111,13 +111,19 @@ public abstract class GLContextImpl extends GLContext {
       mappedGLXProcAddress = new HashMap<String, ProcAddressTable>();
   }
 
+  public static void shutdownImpl() {
+      mappedExtensionAvailabilityCache.clear();
+      mappedGLProcAddress.clear();
+      mappedGLXProcAddress.clear();      
+  }
+  
   public GLContextImpl(GLDrawableImpl drawable, GLContext shareWith) {
     super();
 
     if (shareWith != null) {
       GLContextShareSet.registerSharing(this, shareWith);
     }
-    GLContextShareSet.registerForBufferObjectSharing(shareWith, this);
+    GLContextShareSet.synchronizeBufferObjectSharing(shareWith, this);
 
     this.drawable = drawable;
     this.drawableRead = drawable;
@@ -125,6 +131,7 @@ public abstract class GLContextImpl extends GLContext {
     this.glDebugHandler = new GLDebugMessageHandler(this);
   }
 
+  @Override
   protected void resetStates() {
       // Because we don't know how many other contexts we might be
       // sharing with (and it seems too complicated to implement the
@@ -193,8 +200,18 @@ public abstract class GLContextImpl extends GLContext {
     return gl;
   }
 
-  // This is only needed for Mac OS X on-screen contexts
-  protected void update() throws GLException { }
+  /**
+   * Call this method to notify the OpenGL context
+   * that the drawable has changed (size or position).
+   * 
+   * <p>
+   * This is currently being used and overridden by Mac OSX, 
+   * which issues the {@link jogamp.opengl.macosx.cgl.CGL#updateContext(long) NSOpenGLContext update()} call.
+   * </p>
+   *  
+   * @throws GLException
+   */
+  protected void drawableUpdatedNotify() throws GLException { }
 
   boolean lockFailFast = true;
   Object lockFailFastSync = new Object();
@@ -253,23 +270,6 @@ public abstract class GLContextImpl extends GLContext {
     // don't destroy the context out from under another thread rendering to it
     lockConsiderFailFast();
     try {
-      /* FIXME: refactor dependence on Java 2D / JOGL bridge
-      if (tracker != null) {
-        // Don't need to do anything for contexts that haven't been
-        // created yet
-        if (isCreated()) {
-          // If we are tracking creation and destruction of server-side
-          // OpenGL objects, we must decrement the reference count of the
-          // GLObjectTracker upon context destruction.
-          //
-          // Note that we can only eagerly delete these server-side
-          // objects if there is another context currrent right now
-          // which shares textures and display lists with this one.
-          tracker.unref(deletedObjectTracker);
-        }
-      }
-      */
-
       if (contextHandle != 0) {
           int lockRes = drawable.lockSurface();
           if (NativeSurface.LOCK_SURFACE_NOT_READY == lockRes) {
@@ -277,10 +277,17 @@ public abstract class GLContextImpl extends GLContext {
                 throw new GLException("Surface not ready to lock: "+drawable);
           }
           try {
+              if (DEBUG) {
+                  System.err.println("GLContextImpl.destroy: " + toHexString(contextHandle) +
+                          ", isShared "+GLContextShareSet.isShared(this));
+              }
               destroyImpl();
               contextHandle = 0;
               glDebugHandler = null;
-              GLContextShareSet.contextDestroyed(this);
+              // this maybe impl. in a platform specific way to release remaining shared ctx.
+              if(GLContextShareSet.contextDestroyed(this) && !GLContextShareSet.hasCreatedSharedLeft(this)) {
+                  GLContextShareSet.unregisterSharing(this);
+              }
           } finally {
               drawable.unlockSurface();
           }
@@ -318,7 +325,10 @@ public abstract class GLContextImpl extends GLContext {
   //
 
   /**
-   * MakeCurrent functionality, which also issues the creation of the actual OpenGL context.<br>
+   * {@inheritDoc}
+   * <p>
+   * MakeCurrent functionality, which also issues the creation of the actual OpenGL context.
+   * </p>
    * The complete callgraph for general OpenGL context creation is:<br>
    * <ul>
    *    <li> {@link #makeCurrent} <i>GLContextImpl</i></li>
@@ -354,12 +364,12 @@ public abstract class GLContextImpl extends GLContext {
   public int makeCurrent() throws GLException {
     // One context can only be current by one thread,
     // and one thread can only have one context current!
-    GLContext current = getCurrent();
+    final GLContext current = getCurrent();
     if (current != null) {
       if (current == this) {
         // Assume we don't need to make this context current again
         // For Mac OS X, however, we need to update the context to track resizes
-        update();
+        drawableUpdatedNotify();
         return CONTEXT_CURRENT;
       } else {
         current.release();
@@ -377,7 +387,10 @@ public abstract class GLContextImpl extends GLContext {
         if (null == getGLDrawable().getChosenGLCapabilities()) {
             throw new GLException("drawable has no chosen GLCapabilities: "+getGLDrawable());
         }
-        additionalCtxCreationFlags |= DEBUG_GL ? GLContext.CTX_OPTION_DEBUG : 0 ;        
+        if(DEBUG_GL) {
+            // only impacts w/ createContextARB(..)
+            additionalCtxCreationFlags |= GLContext.CTX_OPTION_DEBUG ;
+        }
     }
 
     lockConsiderFailFast();
@@ -405,14 +418,17 @@ public abstract class GLContextImpl extends GLContext {
         // throws an GLException if not 
         getGLDrawable().getGLProfile().verifyEquality(gl.getGLProfile());
         
+        glDebugHandler.init( isGL2GL3() && isGLDebugEnabled() );
+
         if(DEBUG_GL) {
             gl = gl.getContext().setGL( GLPipelineFactory.create("javax.media.opengl.Debug", null, gl, null) );
-            glDebugHandler.addListener(new GLDebugMessageHandler.StdErrGLDebugListener(true));
+            if(glDebugHandler.isEnabled()) {
+                glDebugHandler.addListener(new GLDebugMessageHandler.StdErrGLDebugListener(true));
+            }
         }
         if(TRACE_GL) {
             gl = gl.getContext().setGL( GLPipelineFactory.create("javax.media.opengl.Trace", null, gl, new Object[] { System.err } ) );
         }               
-        glDebugHandler.init(0 != (additionalCtxCreationFlags & GLContext.CTX_OPTION_DEBUG));        
       }
 
       /* FIXME: refactor dependence on Java 2D / JOGL bridge
@@ -429,10 +445,10 @@ public abstract class GLContextImpl extends GLContext {
 
   // Note: the surface is locked within [makeCurrent .. swap .. release]
   protected final int makeCurrentLocking() throws GLException {
-    boolean exceptionOccurred = false;
+    boolean shallUnlockSurface = false;
     int lockRes = drawable.lockSurface();
     try {
-      if (NativeSurface.LOCK_SURFACE_NOT_READY == lockRes) {
+      if (NativeSurface.LOCK_SURFACE_NOT_READY >= lockRes) {
         return CONTEXT_NOT_CURRENT;
       }
       try {
@@ -442,55 +458,80 @@ public abstract class GLContextImpl extends GLContext {
           if (0 == drawable.getHandle()) {
               throw new GLException("drawable has invalid handle: "+drawable);
           }
-          boolean newCreated = false;
           if (!isCreated()) {
-            GLProfile.initProfiles(
-                    getGLDrawable().getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration().getScreen().getDevice());
-            newCreated = createImpl(); // may throws exception if fails!
+            final GLContextImpl shareWith = (GLContextImpl) GLContextShareSet.getShareContext(this);
+            if (null != shareWith) {
+                shareWith.getDrawableImpl().lockSurface();
+            }
+            boolean created;
+            try {
+                created = createImpl(shareWith); // may throws exception if fails!
+            } finally {
+                if (null != shareWith) {
+                    shareWith.getDrawableImpl().unlockSurface();
+                }                
+            }
             if (DEBUG) {
-                if(newCreated) {
+                if(created) {
                     System.err.println(getThreadName() + ": !!! Create GL context OK: " + toHexString(contextHandle) + " for " + getClass().getName());
                 } else {
                     System.err.println(getThreadName() + ": !!! Create GL context FAILED for " + getClass().getName());
                 }
             }
-            if(!newCreated) {
+            if(!created) {
+                shallUnlockSurface = true;
                 return CONTEXT_NOT_CURRENT;
             }
             GLContextShareSet.contextCreated(this);
+            return CONTEXT_CURRENT_NEW;
           }
-          makeCurrentImpl(newCreated);
-          return newCreated ? CONTEXT_CURRENT_NEW : CONTEXT_CURRENT ;
+          makeCurrentImpl();
+          return CONTEXT_CURRENT;
       } catch (RuntimeException e) {
-        exceptionOccurred = true;
+        shallUnlockSurface = true;
         throw e;
       }
     } finally {
-      if (exceptionOccurred) {
+      if (shallUnlockSurface) {
         drawable.unlockSurface();
       }
     }
   }
-  protected abstract void makeCurrentImpl(boolean newCreatedContext) throws GLException;
-  protected abstract boolean createImpl() throws GLException ;
+  protected abstract void makeCurrentImpl() throws GLException;
+  
+  /** 
+   * Platform dependent entry point for context creation.<br>
+   *
+   * This method is called from {@link #makeCurrentLocking()} .. {@link #makeCurrent()} .<br>
+   *
+   * The implementation shall verify this context with a 
+   * <code>MakeContextCurrent</code> call.<br>
+   *
+   * The implementation <b>must</b> leave the context current.<br>
+   * 
+   * @param share the shared context or null
+   * @return the valid and current context if successful, or null
+   * @throws GLException
+   */
+  protected abstract boolean createImpl(GLContextImpl sharedWith) throws GLException ;
 
   /** 
    * Platform dependent but harmonized implementation of the <code>ARB_create_context</code>
    * mechanism to create a context.<br>
    *
-   * This method is called from {@link #createContextARB}.<br>
+   * This method is called from {@link #createContextARB}, {@link #createImpl(GLContextImpl)} .. {@link #makeCurrent()} .<br>
    *
    * The implementation shall verify this context with a 
    * <code>MakeContextCurrent</code> call.<br>
    *
-   * The implementation shall leave the context current.<br>
+   * The implementation <b>must</b> leave the context current.<br>
    *
    * @param share the shared context or null
    * @param direct flag if direct is requested
    * @param ctxOptionFlags <code>ARB_create_context</code> related, see references below
    * @param major major number
    * @param minor minor number
-   * @return the valid context if successfull, or null
+   * @return the valid and current context if successful, or null
    *
    * @see #makeCurrent
    * @see #CTX_PROFILE_COMPAT
@@ -538,11 +579,11 @@ public abstract class GLContextImpl extends GLContext {
    */
   protected final long createContextARB(long share, boolean direct) 
   {
-    AbstractGraphicsConfiguration config = drawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration();
+    AbstractGraphicsConfiguration config = drawable.getNativeSurface().getGraphicsConfiguration();
     AbstractGraphicsDevice device = config.getScreen().getDevice();
     GLCapabilitiesImmutable glCaps = (GLCapabilitiesImmutable) config.getChosenCapabilities();
     GLProfile glp = glCaps.getGLProfile();
-    GLProfile glpImpl = GLProfile.get(glp.getImplName());
+    GLProfile glpImpl = glp.getImpl();
 
     if (DEBUG) {
       System.err.println(getThreadName() + ": !!! createContextARB: mappedVersionsAvailableSet("+device.getConnection()+"): "+
@@ -587,12 +628,11 @@ public abstract class GLContextImpl extends GLContext {
         createContextARBMapVersionsAvailable(3, false /* core   */);  // GL3
         createContextARBMapVersionsAvailable(2, true  /* compat */);  // GL2
         GLContext.setAvailableGLVersionsSet(device);
+        resetStates();
     }
   }
 
   private final void createContextARBMapVersionsAvailable(int reqMajor, boolean compat) {
-    resetStates();
-
     long _context;
     int reqProfile = compat ? CTX_PROFILE_COMPAT : CTX_PROFILE_CORE ;
     int ctp = CTX_IS_ARB_CREATED | CTX_PROFILE_CORE | CTX_OPTION_ANY; // default
@@ -645,11 +685,12 @@ public abstract class GLContextImpl extends GLContext {
        }
     }
     if(0!=_context) {
-        AbstractGraphicsDevice device = drawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration().getScreen().getDevice();
+        AbstractGraphicsDevice device = drawable.getNativeSurface().getGraphicsConfiguration().getScreen().getDevice();
+        if( isExtensionAvailable("GL_ARB_ES2_compatibility") ) {
+            ctp |= CTX_PROFILE_ES2_COMPAT;
+        }
         GLContext.mapAvailableGLVersion(device, reqMajor, reqProfile, major[0], minor[0], ctp);
-        setGLFunctionAvailability(true, major[0], minor[0], ctp);
         destroyContextARBImpl(_context);
-        resetStates();
         if (DEBUG) {
           System.err.println(getThreadName() + ": !!! createContextARBMapVersionsAvailable HAVE: "+
                   GLContext.getAvailableGLVersionAsString(device, reqMajor, reqProfile));
@@ -666,8 +707,9 @@ public abstract class GLContextImpl extends GLContext {
     major[0]=majorMax;
     minor[0]=minorMax;
     long _context=0;
+    boolean ok = false;
 
-    while ( 0==_context &&
+    while ( !ok &&
             GLContext.isValidGLVersion(major[0], minor[0]) &&
             ( major[0]>majorMin || major[0]==majorMin && minor[0] >=minorMin ) ) {
 
@@ -676,7 +718,29 @@ public abstract class GLContextImpl extends GLContext {
         }
         _context = createContextARBImpl(share, direct, ctxOptionFlags, major[0], minor[0]);
 
-        if(0==_context) {
+        if(0 != _context) {
+            ok = true;
+            setGLFunctionAvailability(true, major[0], minor[0], ctxOptionFlags);            
+        } else {
+            ok = false;            
+        }
+        
+        if(ok && major[0]>=3) {
+            int[] hasMajor = new int[1]; int[] hasMinor = new int[1];
+            gl.glGetIntegerv(GL3.GL_MAJOR_VERSION, hasMajor, 0);
+            gl.glGetIntegerv(GL3.GL_MINOR_VERSION, hasMinor, 0);
+            ok = hasMajor[0]>major[0] || ( hasMajor[0]==major[0] && hasMinor[0]>=minor[0] ) ;
+            if(!ok) {
+                removeCachedVersion(major[0], minor[0], ctxOptionFlags);
+                destroyContextARBImpl(_context);
+                _context = 0;
+            }
+            if (DEBUG) {
+                System.err.println(getThreadName() + ": createContextARBVersions: version verification - expected "+major[0]+"."+minor[0]+", has "+hasMajor[0]+"."+hasMinor[0]+" == "+ok);
+            }
+        }
+        
+        if(!ok) {
             if(!GLContext.decrementGLVersion(major, minor)) break;
         }
     }
@@ -738,7 +802,7 @@ public abstract class GLContextImpl extends GLContext {
   // Helpers for various context implementations
   //
 
-  private Object createInstance(GLProfile glp, String suffix, Class[] cstrArgTypes, Object[] cstrArgs) {
+  private Object createInstance(GLProfile glp, String suffix, Class<?>[] cstrArgTypes, Object[] cstrArgs) {
     return ReflectionUtil.createInstance(glp.getGLImplBaseClassName()+suffix, cstrArgTypes, cstrArgs, getClass().getClassLoader());
   }
 
@@ -782,24 +846,10 @@ public abstract class GLContextImpl extends GLContext {
 
   public abstract ByteBuffer glAllocateMemoryNV(int arg0, float arg1, float arg2, float arg3);
 
-  public final void setSwapInterval(final int interval) {
-    GLContext current = getCurrent();
-    if (current != this) {
-        throw new GLException("This context is not current. Current context: "+current+
-                              ", this context "+this);
-    }
-    setSwapIntervalImpl(interval);
-  }
-  protected void setSwapIntervalImpl(final int interval) { /** nop per default .. **/  }
-  protected int currentSwapInterval = -1; // default: not set yet ..
-  public int getSwapInterval() {
-    return currentSwapInterval;
-  }
-
   /** Maps the given "platform-independent" function name to a real function
       name. Currently this is only used to map "glAllocateMemoryNV" and
       associated routines to wglAllocateMemoryNV / glXAllocateMemoryNV. */
-  protected String mapToRealGLFunctionName(String glFunctionName) {
+  protected final String mapToRealGLFunctionName(String glFunctionName) {
     Map<String, String> map = getFunctionNameMap();
     String lookup = ( null != map ) ? map.get(glFunctionName) : null;
     if (lookup != null) {
@@ -814,7 +864,7 @@ public abstract class GLContextImpl extends GLContext {
       "GL_ARB_pbuffer"      to  "WGL_ARB_pbuffer/GLX_SGIX_pbuffer" and 
       "GL_ARB_pixel_format" to  "WGL_ARB_pixel_format/n.a." 
    */
-  protected String mapToRealGLExtensionName(String glExtensionName) {
+  protected final String mapToRealGLExtensionName(String glExtensionName) {
     Map<String, String> map = getExtensionNameMap();
     String lookup = ( null != map ) ? map.get(glExtensionName) : null;
     if (lookup != null) {
@@ -826,7 +876,7 @@ public abstract class GLContextImpl extends GLContext {
 
   /** Helper routine which resets a ProcAddressTable generated by the
       GLEmitter by looking up anew all of its function pointers. */
-  protected void resetProcAddressTable(ProcAddressTable table) {
+  protected final void resetProcAddressTable(ProcAddressTable table) {
     table.reset(getDrawableImpl().getGLDynamicLookupHelper() );
   }
 
@@ -844,7 +894,7 @@ public abstract class GLContextImpl extends GLContext {
    * @param major OpenGL major version
    * @param minor OpenGL minor version
    * @param ctxProfileBits OpenGL context profile and option bits, see {@link javax.media.opengl.GLContext#CTX_OPTION_ANY}
-   *
+   * 
    * @see #setContextVersion
    * @see javax.media.opengl.GLContext#CTX_OPTION_ANY
    * @see javax.media.opengl.GLContext#CTX_PROFILE_COMPAT
@@ -853,13 +903,14 @@ public abstract class GLContextImpl extends GLContext {
     if(null!=this.gl && null!=glProcAddressTable && !force) {
         return; // already done and not forced
     }
-    if(null==this.gl || force) {
+    
+    if(null==this.gl || !verifyInstance(gl.getGLProfile(), "Impl", this.gl)) {
         setGL(createGL(getGLDrawable().getGLProfile()));
     }
 
     updateGLXProcAddressTable();
 
-    AbstractGraphicsConfiguration aconfig = drawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration();
+    AbstractGraphicsConfiguration aconfig = drawable.getNativeSurface().getGraphicsConfiguration();
     AbstractGraphicsDevice adevice = aconfig.getScreen().getDevice();
     final int ctxImplBits = drawable.getChosenGLCapabilities().getHardwareAccelerated() ? GLContext.CTX_IMPL_ACCEL_HARD : GLContext.CTX_IMPL_ACCEL_SOFT;
     contextFQN = getContextFQN(adevice, major, minor, ctxProfileBits, ctxImplBits);
@@ -870,10 +921,6 @@ public abstract class GLContextImpl extends GLContext {
     //
     // UpdateGLProcAddressTable functionality
     //
-    if(null==this.gl) {
-        throw new GLException("setGLFunctionAvailability not called yet");
-    }
-
     ProcAddressTable table = null;
     synchronized(mappedContextTypeObjectLock) {
         table = mappedGLProcAddress.get( contextFQN );
@@ -931,19 +978,39 @@ public abstract class GLContextImpl extends GLContext {
             }
         }
     }
-
-    hasNativeES2Methods = isGLES2() || isExtensionAvailable("GL_ARB_ES2_compatibility") ;
   }
 
+  protected final void removeCachedVersion(int major, int minor, int ctxProfileBits) {
+    AbstractGraphicsConfiguration aconfig = drawable.getNativeSurface().getGraphicsConfiguration();
+    AbstractGraphicsDevice adevice = aconfig.getScreen().getDevice();
+    final int ctxImplBits = drawable.getChosenGLCapabilities().getHardwareAccelerated() ? GLContext.CTX_IMPL_ACCEL_HARD : GLContext.CTX_IMPL_ACCEL_SOFT;
+    contextFQN = getContextFQN(adevice, major, minor, ctxProfileBits, ctxImplBits);
+    if (DEBUG) {
+      System.err.println(getThreadName() + ": !!! RM Context FQN: "+contextFQN);
+    }
+
+    synchronized(mappedContextTypeObjectLock) {
+        ProcAddressTable table = mappedGLProcAddress.remove( contextFQN );
+        if(DEBUG) {
+            System.err.println(getThreadName() + ": !!! RM GLContext GL ProcAddressTable mapping key("+contextFQN+") -> "+table.hashCode());
+        }
+    }
+
+    synchronized(mappedContextTypeObjectLock) {
+        ExtensionAvailabilityCache  eCache = mappedExtensionAvailabilityCache.get( contextFQN );
+        if(DEBUG) {
+            System.err.println(getThreadName() + ": !!! RM GLContext GL ExtensionAvailabilityCache reusing key("+contextFQN+") -> "+eCache.hashCode());
+        }
+    }
+  }
+  
   /**
    * Updates the platform's 'GLX' function cache
    */
   protected abstract void updateGLXProcAddressTable();
 
-  protected boolean hasNativeES2Methods = false;
-
-  public final boolean hasNativeES2Methods() { return hasNativeES2Methods; }
-
+  protected abstract StringBuffer getPlatformExtensionsStringImpl();
+  
   /**
    * Returns true if the specified OpenGL core- or extension-function can be
    * successfully called using this GL context given the current host (OpenGL
@@ -955,7 +1022,7 @@ public abstract class GLContextImpl extends GLContext {
    * "glPolygonOffsetEXT" or "glPolygonOffset" to check if the {@link
    * javax.media.opengl.GL#glPolygonOffset(float,float)} is available).
    */
-  public boolean isFunctionAvailable(String glFunctionName) {
+  public final boolean isFunctionAvailable(String glFunctionName) {
     // Check GL 1st (cached)
     ProcAddressTable pTable = getGLProcAddressTable(); // null if ctx not created once
     if(null!=pTable) {
@@ -1010,14 +1077,14 @@ public abstract class GLContextImpl extends GLContext {
       return false;
   }
 
-  public String getPlatformExtensionsString() {
+  public final String getPlatformExtensionsString() {
       if(null!=extensionAvailability) {
         return extensionAvailability.getPlatformExtensionsString();
       }
       return null;
   }
 
-  public String getGLExtensionsString() {
+  public final String getGLExtensionsString() {
       if(null!=extensionAvailability) {
         return extensionAvailability.getGLExtensionsString();
       }
@@ -1081,7 +1148,7 @@ public abstract class GLContextImpl extends GLContext {
   //
 
   public boolean hasWaiters() {
-    return lock.getWaitingThreadQueueSize()>0;
+    return lock.getQueueLength()>0;
   }
   
   //---------------------------------------------------------------------------
@@ -1150,10 +1217,11 @@ public abstract class GLContextImpl extends GLContext {
   }
   
   public final void glDebugMessageInsert(int source, int type, int id, int severity, String buf) {
+      final int len = (null != buf) ? buf.length() : 0;
       if(glDebugHandler.isExtensionARB()) {
-          gl.getGL2GL3().glDebugMessageInsertARB(source, type, id, severity, -1, buf);
+          gl.getGL2GL3().glDebugMessageInsertARB(source, type, id, severity, len, buf);
       } else if(glDebugHandler.isExtensionAMD()) {
-          gl.getGL2GL3().glDebugMessageInsertAMD(GLDebugMessage.translateARB2AMDCategory(source, type), severity, id, 0, buf);
+          gl.getGL2GL3().glDebugMessageInsertAMD(GLDebugMessage.translateARB2AMDCategory(source, type), severity, id, len, buf);
       }      
   }
 }

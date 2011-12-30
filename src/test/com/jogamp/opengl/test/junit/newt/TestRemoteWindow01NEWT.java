@@ -43,7 +43,7 @@ import com.jogamp.opengl.test.junit.util.UITestCase;
 
 public class TestRemoteWindow01NEWT extends UITestCase {
     static int width, height;
-    static String remoteDisplay = "nowhere:0.0";
+    static String remoteDisplay = "localhost:0.0";
 
     @BeforeClass
     public static void initClass() {
@@ -77,7 +77,7 @@ public class TestRemoteWindow01NEWT extends UITestCase {
         // Create native OpenGL resources .. XGL/WGL/CGL .. 
         // equivalent to GLAutoDrawable methods: setVisible(true)
         // 
-        CapabilitiesImmutable chosenCapabilities = window.getGraphicsConfiguration().getNativeGraphicsConfiguration().getChosenCapabilities();
+        CapabilitiesImmutable chosenCapabilities = window.getGraphicsConfiguration().getChosenCapabilities();
         Assert.assertNotNull(chosenCapabilities);
         Assert.assertTrue(chosenCapabilities.getGreenBits()>5);
         Assert.assertTrue(chosenCapabilities.getBlueBits()>5);

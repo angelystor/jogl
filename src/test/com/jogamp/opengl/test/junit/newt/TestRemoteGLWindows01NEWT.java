@@ -42,24 +42,15 @@ import com.jogamp.newt.opengl.*;
 import java.io.IOException;
 
 import com.jogamp.opengl.test.junit.util.UITestCase;
-import com.jogamp.opengl.test.junit.jogl.demos.gl2.gears.Gears;
+import com.jogamp.opengl.test.junit.jogl.demos.es1.GearsES1;
+
 import javax.media.nativewindow.AbstractGraphicsDevice;
 import javax.media.nativewindow.NativeWindowException;
 
 public class TestRemoteGLWindows01NEWT extends UITestCase {
-    static GLProfile glp;
-    static int width, height;
+    static int width = 640, height = 480;
     static long durationPerTest = 100; // ms
-    static String remoteDisplay = "nowhere:0.0";
-
-    @BeforeClass
-    public static void initClass() {
-        GLProfile.initSingleton(true);
-        // GLProfile.initSingleton(false);
-        width  = 640;
-        height = 480;
-        glp = GLProfile.getDefault();
-    }
+    static String remoteDisplay = "localhost:0.0";
 
     static GLWindow createWindow(Screen screen, GLCapabilities caps, GLEventListener demo)
         throws InterruptedException
@@ -97,54 +88,67 @@ public class TestRemoteGLWindows01NEWT extends UITestCase {
     @Test
     public void testRemoteWindow01() throws InterruptedException {
         Animator animator = new Animator();
-        GLCapabilities caps = new GLCapabilities(glp);
-        Assert.assertNotNull(caps);
-        GLWindow window1 = createWindow(null, caps, new Gears(1)); // local with vsync
-        Assert.assertEquals(true,window1.isNativeValid());
-        Assert.assertEquals(true,window1.isVisible());
-        AbstractGraphicsDevice device1 = window1.getScreen().getDisplay().getGraphicsDevice();
+        GLProfile glpLocal = GLProfile.getGL2ES1();
+        Assert.assertNotNull(glpLocal);
+        GLCapabilities capsLocal = new GLCapabilities(glpLocal);
+        Assert.assertNotNull(capsLocal);
+        GearsES1 demoLocal = new GearsES1(1);
+        GLWindow windowLocal = createWindow(null, capsLocal, demoLocal); // local with vsync
+        Assert.assertEquals(true,windowLocal.isNativeValid());
+        Assert.assertEquals(true,windowLocal.isVisible());
+        AbstractGraphicsDevice device1 = windowLocal.getScreen().getDisplay().getGraphicsDevice();
 
         System.err.println("GLProfiles window1: "+device1.getConnection()+": "+GLProfile.glAvailabilityToString(device1));
 
-        animator.add(window1);
+        animator.add(windowLocal);
 
         // Remote Display/Device/Screen/Window ..
         // Eager initialization of NEWT Display -> AbstractGraphicsDevice -> GLProfile (device)
-        Display display2; // remote display
-        AbstractGraphicsDevice device2;
-        Screen screen2;
-        GLWindow window2;
+        Display displayRemote; // remote display
+        AbstractGraphicsDevice deviceRemote;
+        Screen screenRemote;
+        GLWindow windowRemote;
+        GearsES1 demoRemote = null;
         try {
-            display2 = NewtFactory.createDisplay(remoteDisplay); // remote display
-            display2.createNative();
-            System.err.println(display2);
-            device2 = display2.getGraphicsDevice();
-            System.err.println(device2);
-            GLProfile.initProfiles(device2); // just to make sure
-            System.err.println("");
-            System.err.println("GLProfiles window2: "+device2.getConnection()+": "+GLProfile.glAvailabilityToString(device2));
-            screen2  = NewtFactory.createScreen(display2, 0); // screen 0
-            window2 = createWindow(screen2, caps, new Gears(0)); // remote, no vsync
+            displayRemote = NewtFactory.createDisplay(remoteDisplay); // remote display
+            displayRemote.createNative();
+            System.err.println(displayRemote);
+            deviceRemote = displayRemote.getGraphicsDevice();
+            System.err.println(deviceRemote);
+            GLProfile.initProfiles(deviceRemote); // just to make sure
+            System.err.println();
+            System.err.println("GLProfiles window2: "+deviceRemote.getConnection()+": "+GLProfile.glAvailabilityToString(deviceRemote));
+            GLProfile glpRemote = GLProfile.get(deviceRemote, GLProfile.GL2ES1);
+            Assert.assertNotNull(glpRemote);
+            GLCapabilities capsRemote = new GLCapabilities(glpRemote);
+            Assert.assertNotNull(capsRemote);
+            screenRemote  = NewtFactory.createScreen(displayRemote, 0); // screen 0
+            demoRemote = new GearsES1(0);
+            windowRemote = createWindow(screenRemote, capsRemote, demoRemote); // remote, no vsync
         } catch (NativeWindowException nwe) {
             System.err.println(nwe);
             Assume.assumeNoException(nwe);
-            destroyWindow(window1);
+            destroyWindow(windowLocal);
             return;
         }
 
-        Assert.assertEquals(true,window2.isNativeValid());
-        Assert.assertEquals(true,window2.isVisible());
+        Assert.assertEquals(true,windowRemote.isNativeValid());
+        Assert.assertEquals(true,windowRemote.isVisible());
 
-        animator.add(window2);
+        animator.add(windowRemote);
         animator.setUpdateFPSFrames(1, null);        
         animator.start();
 
         while(animator.getTotalFPSDuration()<durationPerTest) {
             Thread.sleep(100);
         }
+        if(null!=demoRemote) {
+            System.err.println("demoLocal VBO: "+demoLocal.getGear1().backFace.isVBO());
+            System.err.println("demoRemote VBO: "+demoRemote.getGear1().backFace.isVBO());
+        }
 
-        destroyWindow(window1);
-        destroyWindow(window2);
+        destroyWindow(windowLocal);
+        destroyWindow(windowRemote);
     }
 
     static int atoi(String a) {

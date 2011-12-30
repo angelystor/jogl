@@ -29,10 +29,12 @@
 package jogamp.opengl;
 
 import java.util.ArrayList;
+
 import javax.media.opengl.GLCapabilities;
 import javax.media.opengl.GLCapabilitiesImmutable;
 
 public class GLGraphicsConfigurationUtil {
+    public static final String NV_coverage_sample = "NV_coverage_sample";
     public static final int WINDOW_BIT  = 1 << 0;
     public static final int BITMAP_BIT  = 1 << 1;
     public static final int PBUFFER_BIT = 1 << 2;
@@ -85,6 +87,7 @@ public class GLGraphicsConfigurationUtil {
         return getWinAttributeBits(caps.isOnscreen(), caps.isPBuffer());
     }
 
+    @SuppressWarnings({ "rawtypes", "unchecked" })
     public static final boolean addGLCapabilitiesPermutations(ArrayList capsBucket, GLCapabilitiesImmutable temp, int winattrbits) {
         int preSize = capsBucket.size();
         if( 0 != ( WINDOW_BIT & winattrbits )  )  {
@@ -137,11 +140,25 @@ public class GLGraphicsConfigurationUtil {
         if( capsRequested.getDoubleBuffered() || capsRequested.isOnscreen() || !capsRequested.isPBuffer()) {
             // fix caps ..
             GLCapabilities caps2 = (GLCapabilities) capsRequested.cloneMutable();
-            caps2.setDoubleBuffered(false); // FIXME DBLBUFOFFSCRN
+            caps2.setDoubleBuffered(false); // FIXME DBLBUFOFFSCRN - we don't need to be single buffered ..
+            caps2.setOnscreen(false);
             caps2.setPBuffer(true);
             return caps2;
         }
         return capsRequested;
     }
 
+    public static GLCapabilitiesImmutable fixOpaqueGLCapabilities(GLCapabilitiesImmutable capsRequested, boolean isOpaque)
+    {
+        GLCapabilities caps2 = null;
+        
+        if( capsRequested.isBackgroundOpaque() != isOpaque) {
+            // fix caps ..
+            caps2 = (GLCapabilities) capsRequested.cloneMutable();
+            caps2.setBackgroundOpaque(isOpaque);
+            return caps2;
+        }
+        return capsRequested;
+    }
+    
 }

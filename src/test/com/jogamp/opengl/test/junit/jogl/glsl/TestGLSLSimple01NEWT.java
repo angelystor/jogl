@@ -28,7 +28,7 @@
 
 package com.jogamp.opengl.test.junit.jogl.glsl;
 
-import com.jogamp.opengl.test.junit.jogl.demos.es2.RedSquare0;
+import com.jogamp.opengl.test.junit.jogl.demos.es2.RedSquareES2;
 import com.jogamp.opengl.test.junit.util.GLSLSimpleProgram;
 import com.jogamp.opengl.test.junit.util.UITestCase;
 
@@ -53,19 +53,6 @@ import org.junit.AfterClass;
 
 public class TestGLSLSimple01NEWT extends UITestCase {
     static long durationPerTest = 100; // ms
-
-    @BeforeClass
-    public static void initClass() {
-        System.err.println("class init");
-        GLProfile.initSingleton(true);
-    }
-
-    @AfterClass
-    public static void tearDownClass() {
-        System.err.println("class tear down ..");
-        GLProfile.shutdown();
-        System.err.println("class tear down end");
-    }
 
     @Test(timeout=60000)
     public void testGLSLCompilation01() {
@@ -115,7 +102,7 @@ public class TestGLSLSimple01NEWT extends UITestCase {
         window.setSize(800, 600);
         window.setVisible(true);
         Assert.assertTrue(window.isNativeValid());
-        window.addGLEventListener(new RedSquare0());
+        window.addGLEventListener(new RedSquareES2());
         
         Animator animator = new Animator(window);
         animator.setUpdateFPSFrames(1, null);        

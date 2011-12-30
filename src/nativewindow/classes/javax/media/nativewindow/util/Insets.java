@@ -1,99 +1,55 @@
-/*
- * Copyright (c) 2009 Sun Microsystems, Inc. All Rights Reserved.
- * Copyright (c) 2010 JogAmp Community. All rights reserved.
+/**
+ * Copyright 2011 JogAmp Community. All rights reserved.
  *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *
- * - Redistribution of source code must retain the above copyright
- *   notice, this list of conditions and the following disclaimer.
- *
- * - Redistribution in binary form must reproduce the above copyright
- *   notice, this list of conditions and the following disclaimer in the
- *   documentation and/or other materials provided with the distribution.
- *
- * Neither the name of Sun Microsystems, Inc. or the names of
- * contributors may be used to endorse or promote products derived from
- * this software without specific prior written permission.
- *
- * This software is provided "AS IS," without a warranty of any kind. ALL
- * EXPRESS OR IMPLIED CONDITIONS, REPRESENTATIONS AND WARRANTIES,
- * INCLUDING ANY IMPLIED WARRANTY OF MERCHANTABILITY, FITNESS FOR A
- * PARTICULAR PURPOSE OR NON-INFRINGEMENT, ARE HEREBY EXCLUDED. SUN
- * MICROSYSTEMS, INC. ("SUN") AND ITS LICENSORS SHALL NOT BE LIABLE FOR
- * ANY DAMAGES SUFFERED BY LICENSEE AS A RESULT OF USING, MODIFYING OR
- * DISTRIBUTING THIS SOFTWARE OR ITS DERIVATIVES. IN NO EVENT WILL SUN OR
- * ITS LICENSORS BE LIABLE FOR ANY LOST REVENUE, PROFIT OR DATA, OR FOR
- * DIRECT, INDIRECT, SPECIAL, CONSEQUENTIAL, INCIDENTAL OR PUNITIVE
- * DAMAGES, HOWEVER CAUSED AND REGARDLESS OF THE THEORY OF LIABILITY,
- * ARISING OUT OF THE USE OF OR INABILITY TO USE THIS SOFTWARE, EVEN IF
- * SUN HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
- *
+ * Redistribution and use in source and binary forms, with or without modification, are
+ * permitted provided that the following conditions are met:
+ * 
+ *    1. Redistributions of source code must retain the above copyright notice, this list of
+ *       conditions and the following disclaimer.
+ * 
+ *    2. Redistributions in binary form must reproduce the above copyright notice, this list
+ *       of conditions and the following disclaimer in the documentation and/or other materials
+ *       provided with the distribution.
+ * 
+ * THIS SOFTWARE IS PROVIDED BY JogAmp Community ``AS IS'' AND ANY EXPRESS OR IMPLIED
+ * WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND
+ * FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL JogAmp Community OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+ * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
+ * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+ * ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * 
+ * The views and conclusions contained in the software and documentation are those of the
+ * authors and should not be interpreted as representing official policies, either expressed
+ * or implied, of JogAmp Community.
  */
+ 
 package javax.media.nativewindow.util;
 
-/**
- * Simple class representing insets.
- * 
- * @author tdv
- */
-public class Insets implements Cloneable {
-    public int top;
-    public int left;
-    public int bottom;
-    public int right;
-    public int hash;
+public class Insets implements Cloneable, InsetsImmutable {
+    static final InsetsImmutable zeroInsets = new Insets();
+    public static final InsetsImmutable getZero() { return zeroInsets; }
+    
+    int l, r, t, b;
 
-    /**
-     * Creates and initializes a new <code>Insets</code> object with the
-     * specified top, left, bottom, and right insets.
-     * @param       top   the inset from the top.
-     * @param       left   the inset from the left.
-     * @param       bottom   the inset from the bottom.
-     * @param       right   the inset from the right.
-     */
-    public Insets(int top, int left, int bottom, int right) {
-        this.top = top;
-        this.left = left;
-        this.bottom = bottom;
-        this.right = right;
-        this.hash = computeHashCode();
+    public Insets() {
+        this(0, 0, 0, 0);
     }
 
-    /**
-     * Checks whether two insets objects are equal. Two instances
-     * of <code>Insets</code> are equal if the four integer values
-     * of the fields <code>top</code>, <code>left</code>,
-     * <code>bottom</code>, and <code>right</code> are all equal.
-     * @return      <code>true</code> if the two insets are equal;
-     *                          otherwise <code>false</code>.
-     */
-    public boolean equals(Object obj) {
-        if(this == obj)  { return true; }
-        if (obj instanceof Insets) {
-            Insets insets = (Insets)obj;
-            return ((top == insets.top) && (left == insets.left) &&
-                (bottom == insets.bottom) && (right == insets.right));
-        }
-        return false;
+    public Insets(int left, int right, int top, int bottom) {
+        this.l=left;
+        this.r=right;
+        this.t=top;
+        this.b=bottom;
     }
-
-    /**
-     * Returns the hash code for this Insets.
-     *
-     * @return    a hash code for this Insets.
-     */
-    public int hashCode() {
-        return hash;
+    
+    public Object cloneMutable() {
+      return clone();
     }
-
-    public String toString() {
-        return getClass().getName() + "[top="  + top + ",left=" + left +
-            ",bottom=" + bottom + ",right=" + right + "]";
-    }
-
-    public Object clone() {
+  
+    protected Object clone() {
         try {
             return super.clone();
         } catch (CloneNotSupportedException ex) {
@@ -101,12 +57,39 @@ public class Insets implements Cloneable {
         }
     }
 
-    protected int computeHashCode() {
-        int sum1 = left + bottom;
-        int sum2 = right + top;
-        int val1 = sum1 * (sum1 + 1)/2 + left;
-        int val2 = sum2 * (sum2 + 1)/2 + top;
+    public final int getLeftWidth() { return l; }
+    public final int getRightWidth() { return r; }
+    public final int getTotalWidth() { return l + r; }
+    public final int getTopHeight() { return t; }
+    public final int getBottomHeight() { return b; }
+    public final int getTotalHeight() { return t + b; }
+
+    public void setLeftWidth(int left) { l = left; }
+    public void setRightWidth(int right) { r = right; }
+    public void setTopHeight(int top) { t = top; }
+    public void setBottomHeight(int bottom) { b = bottom; }
+    
+    public boolean equals(Object obj) {
+        if(this == obj)  { return true; }
+        if (obj instanceof Insets) {
+            Insets insets = (Insets)obj;
+            return (r == insets.r) && (l == insets.l) &&
+                   (b == insets.b) && (t == insets.t);
+        }
+        return false;
+    }
+
+    public int hashCode() {
+        int sum1 = l + b;
+        int sum2 = t + r;
+        int val1 = sum1 * (sum1 + 1)/2 + l;
+        int val2 = sum2 * (sum2 + 1)/2 + r;
         int sum3 = val1 + val2;
         return sum3 * (sum3 + 1)/2 + val2;
     }
+
+    public String toString() {
+        return new String("[ l "+l+", r "+r+" - t "+t+", b "+b+" - "+getTotalWidth()+"x"+getTotalHeight()+"]");
+    }
 }
+

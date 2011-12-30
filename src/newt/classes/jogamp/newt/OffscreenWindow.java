@@ -35,6 +35,7 @@
 package jogamp.newt;
 
 import javax.media.nativewindow.*;
+import javax.media.nativewindow.util.Insets;
 import javax.media.nativewindow.util.Point;
 
 public class OffscreenWindow extends WindowImpl implements SurfaceChangeable {
@@ -47,18 +48,16 @@ public class OffscreenWindow extends WindowImpl implements SurfaceChangeable {
     static long nextWindowHandle = 0x100; // start here - a marker
 
     protected void createNativeImpl() {
-        if(0!=getParentWindowHandle()) {
-            throw new NativeWindowException("OffscreenWindow does not support window parenting");
-        }
         if(capsRequested.isOnscreen()) {
             throw new NativeWindowException("Capabilities is onscreen");
         }
-        AbstractGraphicsScreen aScreen = getScreen().getGraphicsScreen();
-        config = GraphicsConfigurationFactory.getFactory(aScreen.getDevice()).chooseGraphicsConfiguration(
-                capsRequested, capsRequested, capabilitiesChooser, aScreen);
-        if (config == null) {
+        final AbstractGraphicsScreen aScreen = getScreen().getGraphicsScreen();
+        final AbstractGraphicsConfiguration cfg = GraphicsConfigurationFactory.getFactory(aScreen.getDevice()).chooseGraphicsConfiguration(
+                                                         capsRequested, capsRequested, capabilitiesChooser, aScreen);
+        if (null == cfg) {
             throw new NativeWindowException("Error choosing GraphicsConfiguration creating window: "+this);
         }
+        setGraphicsConfiguration(cfg);
 
         synchronized(OffscreenWindow.class) {
             setWindowHandle(nextWindowHandle++);
@@ -69,6 +68,10 @@ public class OffscreenWindow extends WindowImpl implements SurfaceChangeable {
         // nop
     }
 
+    public void surfaceSizeChanged(int width, int height) {
+         sizeChanged(false, width, height, false);
+    }
+    
     @Override
     public synchronized void destroy() {
         super.destroy();
@@ -84,32 +87,34 @@ public class OffscreenWindow extends WindowImpl implements SurfaceChangeable {
         return surfaceHandle;
     }
 
-    protected void setVisibleImpl(boolean visible, int x, int y, int width, int height) {
-        sizeChanged(width, height, false);
-        visibleChanged(visible);
-    }
-
     protected void requestFocusImpl(boolean reparented) {
     }
 
     @Override
-    public void setSize(int width, int height) {
-        if(!visible) {
-            sizeChanged(width, height, false);
-        }
-    }
-    @Override
     public void setPosition(int x, int y) {
         // nop
     }
+    
     @Override
     public boolean setFullscreen(boolean fullscreen) {
         // nop
         return false;
     }
-    protected boolean reconfigureWindowImpl(int x, int y, int width, int height, boolean parentChange, int fullScreenChange, int decorationChange) {
-        shouldNotCallThis();
-        return false;
+
+    protected boolean reconfigureWindowImpl(int x, int y, int width, int height, int flags) {
+        if( 0 != ( FLAG_CHANGE_VISIBILITY & flags) ) {
+            sizeChanged(false, width, height, false);
+            visibleChanged(false, 0 != ( FLAG_IS_VISIBLE & flags));
+        } else {
+            /**
+             * silently ignore:
+                FLAG_CHANGE_PARENTING
+                FLAG_CHANGE_DECORATION
+                FLAG_CHANGE_FULLSCREEN
+                FLAG_CHANGE_ALWAYSONTOP
+             */
+        }
+        return true;
     }
 
     @Override
@@ -121,9 +126,13 @@ public class OffscreenWindow extends WindowImpl implements SurfaceChangeable {
      }
      return new Point(0,0);
     }
-
+    
     protected Point getLocationOnScreenImpl(int x, int y) {
         return new Point(x,y);
+    }
+    
+    protected void updateInsetsImpl(Insets insets) {
+        // nop ..        
     }
 }
 

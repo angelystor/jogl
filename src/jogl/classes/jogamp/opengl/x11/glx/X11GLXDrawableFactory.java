@@ -37,115 +37,156 @@
 
 package jogamp.opengl.x11.glx;
 
+import java.nio.Buffer;
+import java.nio.ShortBuffer;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
-import java.nio.*;
 
-import javax.media.nativewindow.*;
-import javax.media.nativewindow.x11.*;
-import javax.media.opengl.*;
+import javax.media.nativewindow.AbstractGraphicsConfiguration;
+import javax.media.nativewindow.AbstractGraphicsDevice;
+import javax.media.nativewindow.AbstractGraphicsScreen;
+import javax.media.nativewindow.NativeSurface;
+import javax.media.nativewindow.NativeWindowFactory;
+import javax.media.nativewindow.ProxySurface;
+import javax.media.nativewindow.x11.X11GraphicsDevice;
+import javax.media.nativewindow.x11.X11GraphicsScreen;
+import javax.media.opengl.GLCapabilitiesChooser;
+import javax.media.opengl.GLCapabilitiesImmutable;
+import javax.media.opengl.GLContext;
+import javax.media.opengl.GLDrawable;
+import javax.media.opengl.GLException;
+import javax.media.opengl.GLProfile;
+import javax.media.opengl.GLProfile.ShutdownType;
 
-import jogamp.opengl.*;
-import com.jogamp.common.JogampRuntimeException;
-import com.jogamp.common.util.*;
 import jogamp.nativewindow.WrappedSurface;
-import jogamp.nativewindow.x11.*;
+import jogamp.nativewindow.x11.X11Lib;
+import jogamp.nativewindow.x11.X11Util;
+import jogamp.opengl.DesktopGLDynamicLookupHelper;
+import jogamp.opengl.GLContextImpl;
+import jogamp.opengl.GLDrawableFactoryImpl;
+import jogamp.opengl.GLDrawableImpl;
+import jogamp.opengl.GLDynamicLookupHelper;
+import jogamp.opengl.SharedResourceRunner;
+
+import com.jogamp.common.util.VersionNumber;
 
 public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
   
-  private static final DesktopGLDynamicLookupHelper x11GLXDynamicLookupHelper;
-  static final VersionNumber versionOneThree = new VersionNumber(1, 3, 0);
+  public static final VersionNumber versionOneZero = new VersionNumber(1, 0, 0);
+  public static final VersionNumber versionOneOne = new VersionNumber(1, 1, 0);
+  public static final VersionNumber versionOneTwo = new VersionNumber(1, 2, 0);
+  public static final VersionNumber versionOneThree = new VersionNumber(1, 3, 0);
+  public static final VersionNumber versionOneFour = new VersionNumber(1, 4, 0);
 
-  static {
-    DesktopGLDynamicLookupHelper tmp = null;
-    try {
-        tmp = new DesktopGLDynamicLookupHelper(new X11GLXDynamicLibraryBundleInfo());
-    } catch (GLException gle) {
-        if(DEBUG) {
-            gle.printStackTrace();
+  private static DesktopGLDynamicLookupHelper x11GLXDynamicLookupHelper = null;
+  
+  public X11GLXDrawableFactory() {
+    super();
+
+    synchronized(X11GLXDrawableFactory.class) {
+        if(null==x11GLXDynamicLookupHelper) {
+            DesktopGLDynamicLookupHelper tmp = null;
+            try {
+                tmp = new DesktopGLDynamicLookupHelper(new X11GLXDynamicLibraryBundleInfo());
+            } catch (GLException gle) {
+                if(DEBUG) {
+                    gle.printStackTrace();
+                }
+            }
+            x11GLXDynamicLookupHelper = tmp;
+            if(null!=x11GLXDynamicLookupHelper) {
+                GLX.getGLXProcAddressTable().reset(x11GLXDynamicLookupHelper);
+            }
         }
     }
-    x11GLXDynamicLookupHelper = tmp;
-    if(null!=x11GLXDynamicLookupHelper) {
-        GLX.getGLXProcAddressTable().reset(x11GLXDynamicLookupHelper);
-    }
+    
+    if(null!=x11GLXDynamicLookupHelper) {        
+        // Register our GraphicsConfigurationFactory implementations
+        // The act of constructing them causes them to be registered
+        X11GLXGraphicsConfigurationFactory.registerFactory();
+        
+        defaultDevice = new X11GraphicsDevice(X11Util.getNullDisplayName(), AbstractGraphicsDevice.DEFAULT_UNIT);
+        sharedMap = new HashMap<String, SharedResourceRunner.Resource>();
+        
+        // Init shared resources off thread
+        // Will be released via ShutdownHook
+        sharedResourceRunner = new SharedResourceRunner(new SharedResourceImplementation());
+        sharedResourceRunner.start();
+    }    
   }
 
-  public static VersionNumber getGLXVersion(X11GraphicsDevice device) {
-    int[] major = new int[1];
-    int[] minor = new int[1];
-    GLXUtil.getGLXVersion(device.getHandle(), major, minor);
-    return new VersionNumber(major[0], minor[0], 0);
+  protected final void destroy(ShutdownType shutdownType) {
+    if(null != sharedResourceRunner) {
+        sharedResourceRunner.stop();
+        sharedResourceRunner = null;
+    }
+    if(null != sharedMap) {
+        sharedMap.clear();
+        sharedMap = null;
+    }
+    defaultDevice = null;
+    /**
+     * Pulling away the native library may cause havoc ..
+     * 
+    if(ShutdownType.COMPLETE == shutdownType && null != x11GLXDynamicLookupHelper) {
+        x11GLXDynamicLookupHelper.destroy();
+        x11GLXDynamicLookupHelper = null;
+    } */
+
+    // Don't really close pending Display connections,
+    // since this may trigger a JVM exception
+    X11Util.shutdown( false, DEBUG );
   }
 
   public GLDynamicLookupHelper getGLDynamicLookupHelper(int profile) {
       return x11GLXDynamicLookupHelper;
   }
 
-  public X11GLXDrawableFactory() {
-    super();
-    // Register our GraphicsConfigurationFactory implementations
-    // The act of constructing them causes them to be registered
-    new X11GLXGraphicsConfigurationFactory();
-    if(GLProfile.isAWTAvailable()) {
-        try {
-          ReflectionUtil.createInstance("jogamp.opengl.x11.glx.awt.X11AWTGLXGraphicsConfigurationFactory",
-                                        null, getClass().getClassLoader());
-        } catch (JogampRuntimeException jre) { /* n/a .. */ }
-    }
-
-    defaultDevice = new X11GraphicsDevice(X11Util.getNullDisplayName(), AbstractGraphicsDevice.DEFAULT_UNIT);
-
-    // Init shared resources off thread
-    // Will be released via ShutdownHook
-    sharedResourceImpl = new SharedResourceImplementation();
-    sharedResourceRunner = new SharedResourceRunner(sharedResourceImpl);
-    sharedResourceThread = new Thread(sharedResourceRunner, Thread.currentThread().getName()+"-SharedResourceRunner");
-    sharedResourceThread.setDaemon(true); // Allow JVM to exit, even if this one is running
-    sharedResourceThread.start();
-  }
-
-  X11GraphicsDevice defaultDevice;
-  SharedResourceImplementation sharedResourceImpl;
-  SharedResourceRunner sharedResourceRunner;
-  Thread sharedResourceThread;
-  HashMap/*<connection, SharedResource>*/ sharedMap = new HashMap();
+  private X11GraphicsDevice defaultDevice;
+  private SharedResourceRunner sharedResourceRunner;
+  private HashMap<String /* connection */, SharedResourceRunner.Resource> sharedMap;  
 
   static class SharedResource implements SharedResourceRunner.Resource {
       X11GraphicsDevice device;
       X11GraphicsScreen screen;
       X11DummyGLXDrawable drawable;
       X11GLXContext context;
-      String glXVendorName;
-      boolean isGLXVendorATI;
-      boolean isGLXVendorNVIDIA;
-      VersionNumber glXVersion;
+      String glXServerVendorName;
+      boolean isGLXServerVendorATI;
+      boolean isGLXServerVendorNVIDIA;
+      VersionNumber glXServerVersion;
+      boolean glXServerVersionOneOneCapable;
+      boolean glXServerVersionOneThreeCapable;
+      boolean glXMultisampleAvailable;
 
       SharedResource(X11GraphicsDevice dev, X11GraphicsScreen scrn,
                      X11DummyGLXDrawable draw, X11GLXContext ctx,
-                     VersionNumber glXVer, String glXVendor) {
+                     VersionNumber glXServerVer, String glXServerVendor, boolean glXServerMultisampleAvail) {
           device = dev;
           screen = scrn;
           drawable = draw;
           context = ctx;
-          glXVersion = glXVer;
-          glXVendorName = glXVendor;
-          isGLXVendorATI = GLXUtil.isVendorATI(glXVendorName);
-          isGLXVendorNVIDIA = GLXUtil.isVendorNVIDIA(glXVendorName);
+          glXServerVersion = glXServerVer;
+          glXServerVersionOneOneCapable = glXServerVersion.compareTo(versionOneOne) >= 0 ;        
+          glXServerVersionOneThreeCapable = glXServerVersion.compareTo(versionOneThree) >= 0 ;        
+          glXServerVendorName = glXServerVendor;
+          isGLXServerVendorATI = GLXUtil.isVendorATI(glXServerVendorName);
+          isGLXServerVendorNVIDIA = GLXUtil.isVendorNVIDIA(glXServerVendorName);
+          glXMultisampleAvailable = glXServerMultisampleAvail;
       }
       final public AbstractGraphicsDevice getDevice() { return device; }
       final public AbstractGraphicsScreen getScreen() { return screen; }
       final public GLDrawableImpl getDrawable() { return drawable; }
       final public GLContextImpl getContext() { return context; }
 
-      final String getGLXVendorName() { return glXVendorName; }
-      final boolean isGLXVendorATI() { return isGLXVendorATI; }
-      final boolean isGLXVendorNVIDIA() { return isGLXVendorNVIDIA; }
-      final VersionNumber getGLXVersion() { return glXVersion; }
-      final boolean isGLXVersionGreaterEqualOneThree() {
-        return ( null != glXVersion ) ? glXVersion.compareTo(versionOneThree) >= 0 : false ;
-      }
+      final String getGLXVendorName() { return glXServerVendorName; }
+      final boolean isGLXVendorATI() { return isGLXServerVendorATI; }
+      final boolean isGLXVendorNVIDIA() { return isGLXServerVendorNVIDIA; }
+      final VersionNumber getGLXVersion() { return glXServerVersion; }
+      final boolean isGLXVersionGreaterEqualOneOne() { return glXServerVersionOneOneCapable; }
+      final boolean isGLXVersionGreaterEqualOneThree() { return glXServerVersionOneThreeCapable; }
+      final boolean isGLXMultisampleAvailable() { return glXMultisampleAvailable; }
   }
 
   class SharedResourceImplementation implements SharedResourceRunner.Implementation {
@@ -156,32 +197,39 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
         }
         public SharedResourceRunner.Resource mapPut(String connection, SharedResourceRunner.Resource resource) {
             synchronized(sharedMap) {
-                return (SharedResourceRunner.Resource) sharedMap.put(connection, resource);
+                return sharedMap.put(connection, resource);
             }
         }
         public SharedResourceRunner.Resource mapGet(String connection) {
             synchronized(sharedMap) {
-                return (SharedResourceRunner.Resource) sharedMap.get(connection);
+                return sharedMap.get(connection);
             }
         }
-        public Collection/*<Resource>*/ mapValues() {
+        public Collection<SharedResourceRunner.Resource> mapValues() {
             synchronized(sharedMap) {
                 return sharedMap.values();
             }
         }
 
         public SharedResourceRunner.Resource createSharedResource(String connection) {
-            X11GraphicsDevice sharedDevice = new X11GraphicsDevice(X11Util.createDisplay(connection), AbstractGraphicsDevice.DEFAULT_UNIT);
-            sharedDevice.setCloseDisplay(true);
+            X11GraphicsDevice sharedDevice = 
+                    new X11GraphicsDevice(X11Util.openDisplay(connection), AbstractGraphicsDevice.DEFAULT_UNIT, 
+                                          true); // own non-shared display connection, no locking
+                    // new X11GraphicsDevice(X11Util.openDisplay(connection), AbstractGraphicsDevice.DEFAULT_UNIT, 
+                    //                       NativeWindowFactory.getNullToolkitLock(), true); // own non-shared display connection, no locking
             sharedDevice.lock();
             try {
-                String glXVendorName = GLXUtil.getVendorName(sharedDevice.getHandle());
+                GLXUtil.initGLXClientDataSingleton(sharedDevice);
+                final String glXServerVendorName = GLX.glXQueryServerString(sharedDevice.getHandle(), 0, GLX.GLX_VENDOR);
+                final VersionNumber glXServerVersion = GLXUtil.getGLXServerVersionNumber(sharedDevice.getHandle());
+                final boolean glXServerMultisampleAvailable = GLXUtil.isMultisampleAvailable(GLX.glXQueryServerString(sharedDevice.getHandle(), 0, GLX.GLX_EXTENSIONS));                
+                if(X11Util.ATI_HAS_XCLOSEDISPLAY_BUG && GLXUtil.isVendorATI(glXServerVendorName)) {
+                    X11Util.setMarkAllDisplaysUnclosable(true);
+                    X11Util.markDisplayUncloseable(sharedDevice.getHandle());
+                }
                 X11GraphicsScreen sharedScreen = new X11GraphicsScreen(sharedDevice, 0);
 
-                if (null == sharedScreen) {
-                    throw new GLException("Couldn't create shared screen for device: "+sharedDevice+", idx 0");
-                }
-                GLProfile glp = GLProfile.getMinDesktop(sharedDevice);
+                GLProfile glp = GLProfile.get(sharedDevice, GLProfile.GL_PROFILE_LIST_MIN_DESKTOP);
                 if (null == glp) {
                     throw new GLException("Couldn't get default GLProfile for device: "+sharedDevice);
                 }
@@ -194,7 +242,6 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
                     throw new GLException("Couldn't create shared context for drawable: "+sharedDrawable);
                 }
                 sharedContext.setSynchronized(true);
-                VersionNumber glXVersion = getGLXVersion(sharedDevice);
                 boolean madeCurrent = false;
                 sharedContext.makeCurrent();
                 try {
@@ -206,11 +253,16 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
                     System.err.println("!!! SharedDevice:  " + sharedDevice);
                     System.err.println("!!! SharedScreen:  " + sharedScreen);
                     System.err.println("!!! SharedContext: " + sharedContext + ", madeCurrent " + madeCurrent);
-                    System.err.println("!!! GLX Vendor:    " + glXVendorName);
-                    System.err.println("!!! GLX Version:   " + glXVersion
-                            + " >= 1.3: " + (glXVersion.compareTo(versionOneThree) >= 0));
+                    System.err.println("!!! GLX Server Vendor:      " + glXServerVendorName);
+                    System.err.println("!!! GLX Server Version:     " + glXServerVersion);
+                    System.err.println("!!! GLX Server Multisample: " + glXServerMultisampleAvailable);
+                    System.err.println("!!! GLX Client Vendor:      " + GLXUtil.getClientVendorName());
+                    System.err.println("!!! GLX Client Version:     " + GLXUtil.getClientVersionNumber());
+                    System.err.println("!!! GLX Client Multisample: " + GLXUtil.isClientMultisampleAvailable());
                 }
-                return new SharedResource(sharedDevice, sharedScreen, sharedDrawable, sharedContext, glXVersion, glXVendorName);
+                return new SharedResource(sharedDevice, sharedScreen, sharedDrawable, sharedContext, 
+                                          glXServerVersion, glXServerVendorName, 
+                                          glXServerMultisampleAvailable && GLXUtil.isClientMultisampleAvailable());
             } catch (Throwable t) {
                 throw new GLException("X11GLXDrawableFactory - Could not initialize shared resources for "+connection, t);
             } finally {
@@ -226,15 +278,19 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
                 System.err.println("!!!   Screen  : " + sr.screen);
                 System.err.println("!!!   Drawable: " + sr.drawable);
                 System.err.println("!!!   CTX     : " + sr.context);
+                Thread.dumpStack();
             }
 
             if (null != sr.context) {
-                // may cause JVM SIGSEGV: sharedContext.destroy();
+                // may cause JVM SIGSEGV:
+                sr.context.makeCurrent();
+                sr.context.destroy();
                 sr.context = null;
             }
 
             if (null != sr.drawable) {
-                // may cause JVM SIGSEGV: sharedDrawable.destroy();
+                // may cause JVM SIGSEGV:
+                sr.drawable.destroy();
                 sr.drawable = null;
             }
 
@@ -243,6 +299,7 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
             }
 
             if (null != sr.device) {
+                // may cause JVM SIGSEGV:
                 sr.device.close();
                 sr.device = null;
             }
@@ -260,6 +317,25 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
       return false;
   }
 
+  protected final Thread getSharedResourceThread() {
+    return sharedResourceRunner.start();
+  }
+    
+  protected final boolean createSharedResource(AbstractGraphicsDevice device) {
+    try {
+        SharedResourceRunner.Resource sr = sharedResourceRunner.getOrCreateShared(device);
+        if(null!=sr) {
+          return null != sr.getContext();
+        }
+    } catch (GLException gle) {
+        if(DEBUG) {
+            System.err.println("Catched Exception while X11GLX Shared Resource initialization");
+            gle.printStackTrace();
+        }
+    }
+    return false;
+  }
+  
   protected final GLContext getOrCreateSharedContextImpl(AbstractGraphicsDevice device) {
     SharedResourceRunner.Resource sr = sharedResourceRunner.getOrCreateShared(device);
     if(null!=sr) {
@@ -288,39 +364,7 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
     return (SharedResource) sharedResourceRunner.getOrCreateShared(device);
   }
 
-  public final String getGLXVendorName(AbstractGraphicsDevice device) {
-    SharedResourceRunner.Resource sr = sharedResourceRunner.getOrCreateShared(device);
-    if(null!=sr) {
-      return ((SharedResource)sr).getGLXVendorName();
-    }
-    return GLXUtil.getVendorName(device.getHandle());
-  }
-
-  public final boolean isGLXVendorATI(AbstractGraphicsDevice device) {
-    SharedResourceRunner.Resource sr = sharedResourceRunner.getOrCreateShared(device);
-    if(null!=sr) {
-      return ((SharedResource)sr).isGLXVendorATI();
-    }
-    return GLXUtil.isVendorATI(device.getHandle());
-  }
-
-  public final boolean isGLXVendorNVIDIA(AbstractGraphicsDevice device) {
-    SharedResourceRunner.Resource sr = sharedResourceRunner.getOrCreateShared(device);
-    if(null!=sr) {
-      return ((SharedResource)sr).isGLXVendorNVIDIA();
-    }
-    return GLXUtil.isVendorNVIDIA(device.getHandle());
-  }
-
-  protected final void shutdownInstance() {
-    sharedResourceRunner.releaseAndWait();
-
-    // Don't really close pending Display connections,
-    // since this may trigger a JVM exception
-    X11Util.shutdown( false, DEBUG );
-  }
-
-  protected List/*GLCapabilitiesImmutable*/ getAvailableCapabilitiesImpl(AbstractGraphicsDevice device) {
+  protected List<GLCapabilitiesImmutable> getAvailableCapabilitiesImpl(AbstractGraphicsDevice device) {
     return X11GLXGraphicsConfigurationFactory.getAvailableCapabilities(this, device);
   }
 
@@ -335,7 +379,7 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
     if (target == null) {
       throw new IllegalArgumentException("Null target");
     }
-    AbstractGraphicsConfiguration config = target.getGraphicsConfiguration().getNativeGraphicsConfiguration();
+    AbstractGraphicsConfiguration config = target.getGraphicsConfiguration();
     GLCapabilitiesImmutable caps = (GLCapabilitiesImmutable) config.getChosenCapabilities();
     if(!caps.isPBuffer()) {
         return new X11PixmapGLXDrawable(this, target);
@@ -365,14 +409,53 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
     return pbufferDrawable;
   }
 
-  public final boolean isGLXVersionGreaterEqualOneThree(AbstractGraphicsDevice device) {
-    SharedResource sr = (SharedResource) sharedResourceRunner.getOrCreateShared(device);
-    if(null!=sr) {
-      return sr.isGLXVersionGreaterEqualOneThree();
+  public final boolean isGLXMultisampleAvailable(AbstractGraphicsDevice device) {
+    if(null != device) {  
+        SharedResource sr = (SharedResource) sharedResourceRunner.getOrCreateShared(device);
+        if(null!=sr) {
+          return sr.isGLXMultisampleAvailable();
+        }
     }
-    if( device instanceof X11GraphicsDevice ) {
-      VersionNumber v = getGLXVersion( (X11GraphicsDevice) device);
-      return ( null != v ) ? v.compareTo(versionOneThree) >= 0 : false ;
+    return false;
+  }
+
+  public final VersionNumber getGLXVersionNumber(AbstractGraphicsDevice device) {
+    if(null != device) {  
+        SharedResource sr = (SharedResource) sharedResourceRunner.getOrCreateShared(device);
+        if(null!=sr) {
+          return sr.getGLXVersion();
+        }
+        if( device instanceof X11GraphicsDevice ) {
+          return GLXUtil.getGLXServerVersionNumber(device.getHandle());
+        }
+    }
+    return null;
+  }
+  
+  public final boolean isGLXVersionGreaterEqualOneOne(AbstractGraphicsDevice device) {
+    if(null != device) {  
+        SharedResource sr = (SharedResource) sharedResourceRunner.getOrCreateShared(device);
+        if(null!=sr) {
+          return sr.isGLXVersionGreaterEqualOneOne();
+        }
+        if( device instanceof X11GraphicsDevice ) {
+          final VersionNumber glXServerVersion = GLXUtil.getGLXServerVersionNumber(device.getHandle());
+          return glXServerVersion.compareTo(versionOneOne) >= 0;
+        }
+    }
+    return false;
+  }
+  
+  public final boolean isGLXVersionGreaterEqualOneThree(AbstractGraphicsDevice device) {
+    if(null != device) {  
+        SharedResource sr = (SharedResource) sharedResourceRunner.getOrCreateShared(device);
+        if(null!=sr) {
+          return sr.isGLXVersionGreaterEqualOneThree();
+        }
+        if( device instanceof X11GraphicsDevice ) {
+          final VersionNumber glXServerVersion = GLXUtil.getGLXServerVersionNumber(device.getHandle());
+          return glXServerVersion.compareTo(versionOneThree) >= 0;
+        }
     }
     return false;
   }
@@ -387,23 +470,28 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
       return isGLXVersionGreaterEqualOneThree(device);
   }
 
-  protected final NativeSurface createOffscreenSurfaceImpl(AbstractGraphicsDevice device,
+  protected final NativeSurface createOffscreenSurfaceImpl(AbstractGraphicsDevice deviceReq,
                                                            GLCapabilitiesImmutable capsChosen, GLCapabilitiesImmutable capsRequested,
                                                            GLCapabilitiesChooser chooser,
                                                            int width, int height) {
-    X11GraphicsScreen screen = null;
-    SharedResourceRunner.Resource sr = sharedResourceRunner.getOrCreateShared(device);
-    if(null!=sr) {
-        screen = (X11GraphicsScreen) sr.getScreen();
+    if(null == deviceReq) {
+        throw new InternalError("deviceReq is null");
     }
-    if(null==screen) {
-        return null;
+    final SharedResourceRunner.Resource sr = sharedResourceRunner.getOrCreateShared(deviceReq);
+    if(null==sr) {
+        throw new InternalError("No SharedResource for: "+deviceReq);
     }
+    final X11GraphicsScreen sharedScreen = (X11GraphicsScreen) sr.getScreen();
+    final AbstractGraphicsDevice sharedDevice = sharedScreen.getDevice(); // should be same ..
 
+    // create screen/device pair - Null X11 locking, due to private non-shared Display handle
+    final X11GraphicsDevice device = new X11GraphicsDevice(X11Util.openDisplay(sharedDevice.getConnection()), AbstractGraphicsDevice.DEFAULT_UNIT, NativeWindowFactory.getNullToolkitLock(), true);
+    final X11GraphicsScreen screen = new X11GraphicsScreen(device, sharedScreen.getIndex()); 
+    
     WrappedSurface ns = new WrappedSurface(
                X11GLXGraphicsConfigurationFactory.chooseGraphicsConfigurationStatic(capsChosen, capsRequested, chooser, screen) );
     if(ns != null) {
-        ns.setSize(width, height);
+        ns.surfaceSizeChanged(width, height);
     }
     return ns;
   }
@@ -455,8 +543,8 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
     }
 
     int[] size = new int[1];
-    boolean res = X11Util.XF86VidModeGetGammaRampSize(display,
-                                                      X11Util.DefaultScreen(display),
+    boolean res = X11Lib.XF86VidModeGetGammaRampSize(display,
+                                                      X11Lib.DefaultScreen(display),
                                                       size, 0);
     if (!res) {
       return 0;
@@ -478,8 +566,8 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
       rampData[i] = (short) (ramp[i] * 65535);
     }
 
-    boolean res = X11Util.XF86VidModeSetGammaRamp(display,
-                                              X11Util.DefaultScreen(display),
+    boolean res = X11Lib.XF86VidModeSetGammaRamp(display,
+                                              X11Lib.DefaultScreen(display),
                                               rampData.length,
                                               rampData, 0,
                                               rampData, 0,
@@ -505,8 +593,8 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
     rampData.limit(3 * size);
     ShortBuffer blueRampData = rampData.slice();
 
-    boolean res = X11Util.XF86VidModeGetGammaRamp(display,
-                                              X11Util.DefaultScreen(display),
+    boolean res = X11Lib.XF86VidModeGetGammaRamp(display,
+                                              X11Lib.DefaultScreen(display),
                                               size,
                                               redRampData,
                                               greenRampData,
@@ -542,8 +630,8 @@ public class X11GLXDrawableFactory extends GLDrawableFactoryImpl {
     rampData.limit(3 * size);
     ShortBuffer blueRampData = rampData.slice();
 
-    X11Util.XF86VidModeSetGammaRamp(display,
-                                X11Util.DefaultScreen(display),
+    X11Lib.XF86VidModeSetGammaRamp(display,
+                                X11Lib.DefaultScreen(display),
                                 size,
                                 redRampData,
                                 greenRampData,

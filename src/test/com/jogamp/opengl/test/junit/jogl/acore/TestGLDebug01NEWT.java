@@ -30,14 +30,12 @@ package com.jogamp.opengl.test.junit.jogl.acore;
 
 import java.io.IOException;
 
-import javax.media.opengl.GL;
 import javax.media.opengl.GL2GL3;
 import javax.media.opengl.GLAutoDrawable;
 import javax.media.opengl.GLCapabilities;
 import javax.media.opengl.GLContext;
 import javax.media.opengl.GLDebugListener;
 import javax.media.opengl.GLDebugMessage;
-import javax.media.opengl.GLEventListener;
 import javax.media.opengl.GLProfile;
 import javax.media.opengl.GLRunnable;
 
@@ -92,11 +90,12 @@ public class TestGLDebug01NEWT extends UITestCase {
         Assert.assertEquals((null == glDebugExt) ? false : enable, ctx.isGLDebugMessageEnabled());
         if(ctx.isGLDebugMessageEnabled() && null != dbgTstMsg && 0 <= dbgTstId) {
             window.invoke(true, new GLRunnable() {
-                public void run(GLAutoDrawable drawable) {
+                public boolean run(GLAutoDrawable drawable) {
                     drawable.getContext().glDebugMessageInsert(GL2GL3.GL_DEBUG_SOURCE_APPLICATION_ARB, 
                                                                GL2GL3.GL_DEBUG_TYPE_OTHER_ARB,
                                                                dbgTstId, 
                                                                GL2GL3.GL_DEBUG_SEVERITY_MEDIUM_ARB, dbgTstMsg);
+                    return true;
                 }
             });
             Assert.assertEquals(true, myGLDebugListener.received());
@@ -128,8 +127,9 @@ public class TestGLDebug01NEWT extends UITestCase {
         window.getContext().addGLDebugListener(myGLDebugListener);
         
         window.invoke(true, new GLRunnable() {
-            public void run(GLAutoDrawable drawable) {
+            public boolean run(GLAutoDrawable drawable) {
                 drawable.getGL().glBindFramebuffer(-1, -1); // ERROR !
+                return true;
             }
         } );
         
@@ -182,7 +182,7 @@ public class TestGLDebug01NEWT extends UITestCase {
                                         recSeverity== event.getDbgSeverity() ) {
                 received = true;                
             }
-            Thread.dumpStack();
+            // Thread.dumpStack();
         }        
     }
 }

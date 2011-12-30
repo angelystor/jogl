@@ -36,31 +36,29 @@ public class X11GLXDynamicLibraryBundleInfo extends DesktopGLDynamicLibraryBundl
         super();
     }
 
-    public List getToolLibNames() {
-        List/*<List>*/ libNamesList = new ArrayList();
-
-        List/*<String>*/ glesLibNames = new ArrayList();
-
+    public List<List<String>> getToolLibNames() {
+        final List<List<String>> libsList = new ArrayList<List<String>>();
+        final List<String> libsGL = new ArrayList<String>();
+        
         // Be aware that on DRI systems, eg ATI fglrx, etc, 
         // you have to set LIBGL_DRIVERS_PATH env variable.
         // Eg on Ubuntu 64bit systems this is:
         //    export LIBGL_DRIVERS_PATH=/usr/lib/fglrx/dri:/usr/lib32/fglrx/dri
         //
 
-        // this is the default GL lib name, according to the spec
-        glesLibNames.add("libGL.so.1");
+        // this is the default lib name, according to the spec
+        libsGL.add("libGL.so.1");
 
         // try this one as well, if spec fails
-        glesLibNames.add("libGL.so");
+        libsGL.add("libGL.so");
 
         // last but not least .. the generic one
-        glesLibNames.add("GL");
-
-        libNamesList.add(glesLibNames);
-
-        return libNamesList;
-    }
-
+        libsGL.add("GL");
+        
+        libsList.add(libsGL);        
+        return libsList;
+    }    
+    
     /** 
      * This respects old DRI requirements:<br>
      * <pre>
@@ -69,14 +67,14 @@ public class X11GLXDynamicLibraryBundleInfo extends DesktopGLDynamicLibraryBundl
      */
     public boolean shallLinkGlobal() { return true; }
 
-    public final List getToolGetProcAddressFuncNameList() {
-        List res = new ArrayList();
+    public final List<String> getToolGetProcAddressFuncNameList() {
+        List<String> res = new ArrayList<String>();
         res.add("glXGetProcAddressARB");
         res.add("glXGetProcAddress");
         return res;
     }
 
-    public final long toolDynamicLookupFunction(long toolGetProcAddressHandle, String funcName) {
+    public final long toolGetProcAddress(long toolGetProcAddressHandle, String funcName) {
         return GLX.glXGetProcAddress(toolGetProcAddressHandle, funcName);
     }
 }

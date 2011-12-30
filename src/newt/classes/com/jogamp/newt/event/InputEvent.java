@@ -34,17 +34,25 @@
 
 package com.jogamp.newt.event;
 
+@SuppressWarnings("serial")
 public abstract class InputEvent extends NEWTEvent
 {
- public static final int  SHIFT_MASK     = 1 << 0;
- public static final int  CTRL_MASK      = 1 << 1;
- public static final int  META_MASK      = 1 << 2;
- public static final int  ALT_MASK       = 1 << 3;
- public static final int  ALT_GRAPH_MASK = 1 << 5;
- public static final int  BUTTON1_MASK   = 1 << 6;
- public static final int  BUTTON2_MASK   = 1 << 7;
- public static final int  BUTTON3_MASK   = 1 << 8;
+ public static final int  SHIFT_MASK     = 1 <<  0;
+ public static final int  CTRL_MASK      = 1 <<  1;
+ public static final int  META_MASK      = 1 <<  2;
+ public static final int  ALT_MASK       = 1 <<  3;
+ public static final int  ALT_GRAPH_MASK = 1 <<  5;
+ public static final int  BUTTON1_MASK   = 1 <<  6;
+ public static final int  BUTTON2_MASK   = 1 <<  7;
+ public static final int  BUTTON3_MASK   = 1 <<  8;
+ public static final int  CONFINED_MASK  = 1 << 16;
+ public static final int  INVISIBLE_MASK = 1 << 17;
 
+ /** Object when attached via {@link #setAttachment(Object)} marks the event consumed,
+  * ie. stops propagating the event any further to the event listener. 
+  */
+ public static final Object consumedTag = new Object();
+ 
  protected InputEvent(int eventType, Object source, long when, int modifiers) {
     super(eventType, source, when);
     this.modifiers=modifiers;
@@ -68,21 +76,45 @@ public abstract class InputEvent extends NEWTEvent
  public boolean isShiftDown()  {
     return (modifiers&SHIFT_MASK)!=0;
  }
+ public boolean isConfined()  {
+    return (modifiers&CONFINED_MASK)!=0;
+ }
+ public boolean isInvisible()  {
+    return (modifiers&INVISIBLE_MASK)!=0;
+ }
 
- public boolean isButton1Down()  {
+ /**
+  * @return Array of pressed mouse buttons  [{@link MouseEvent#BUTTON1} ..]. 
+  *         If none is down, the resulting array is of length 0.
+  */
+ public final int[] getButtonsDown()  {
+     int len = 0;
+     if(isButton1Down()) { len++; }
+     if(isButton2Down()) { len++; }
+     if(isButton3Down()) { len++; }
+     
+     int[] res = new int[len];
+     int i=0;
+     if(isButton1Down()) { res[i++] = MouseEvent.BUTTON1; }
+     if(isButton2Down()) { res[i++] = MouseEvent.BUTTON2; }
+     if(isButton3Down()) { res[i++] = MouseEvent.BUTTON3; }
+     return res;
+ }
+
+ public final boolean isButton1Down()  {
     return (modifiers&BUTTON1_MASK)!=0;
  }
 
- public boolean isButton2Down()  {
+ public final boolean isButton2Down()  {
     return (modifiers&BUTTON2_MASK)!=0;
  }
 
- public boolean isButton3Down()  {
+ public final boolean isButton3Down()  {
     return (modifiers&BUTTON3_MASK)!=0;
  }
 
  public String toString() {
-     return "InputEvent[modifiers:"+modifiers+", "+super.toString()+"]";
+     return "InputEvent[modifiers: 0x"+Integer.toHexString(modifiers)+", "+super.toString()+"]";
  }
 
  private final int modifiers;

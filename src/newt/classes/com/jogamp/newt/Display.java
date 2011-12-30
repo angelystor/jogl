@@ -30,7 +30,6 @@ package com.jogamp.newt;
 
 import com.jogamp.newt.util.EDTUtil;
 import jogamp.newt.Debug;
-import jogamp.newt.DisplayImpl;
 
 import java.util.*;
 
@@ -130,7 +129,10 @@ public abstract class Display {
     public abstract int getId();
 
     /**
-     * @return this display instance name as defined at creation time
+     * @return This display connection name as defined at creation time. 
+     *         The display connection name is a technical platform specific detail, see {@link AbstractGraphicsDevice#getConnection()}. 
+     *
+     * @see AbstractGraphicsDevice#getConnection()
      */
     public abstract String getName();
 
@@ -146,15 +148,15 @@ public abstract class Display {
     public abstract void dispatchMessages();
     
     // Global Displays
-    protected static ArrayList displayList = new ArrayList();
+    protected static ArrayList<Display> displayList = new ArrayList<Display>();
     protected static int displaysActive = 0;
 
     public static void dumpDisplayList(String prefix) {
         synchronized(displayList) {
-            Iterator i = displayList.iterator();
+            Iterator<Display> i = displayList.iterator();
             System.err.println(prefix+" DisplayList[] entries: "+displayList.size()+" - "+getThreadName());
             for(int j=0; i.hasNext(); j++) {
-                DisplayImpl d = (DisplayImpl) i.next();
+                Display d = i.next();
                 System.err.println("  ["+j+"] : "+d);
             }
         }
@@ -198,10 +200,11 @@ public abstract class Display {
     }
 
     /** Returns the global display collection */
-    public static Collection getAllDisplays() {
-        ArrayList list;
+    @SuppressWarnings("unchecked")
+    public static Collection<Display> getAllDisplays() {
+        ArrayList<Display> list;
         synchronized(displayList) {
-            list = (ArrayList) displayList.clone();
+            list = (ArrayList<Display>) displayList.clone();
         }
         return list;
     }

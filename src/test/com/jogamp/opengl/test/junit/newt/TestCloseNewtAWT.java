@@ -39,10 +39,9 @@ import javax.media.nativewindow.NativeWindow;
 import javax.media.nativewindow.util.Point;
 import javax.media.opengl.GLCapabilities;
 import javax.media.opengl.GLProfile;
+
 import com.jogamp.newt.Window;
 import com.jogamp.newt.awt.NewtCanvasAWT;
-import com.jogamp.newt.event.WindowAdapter;
-import com.jogamp.newt.event.WindowEvent;
 import com.jogamp.newt.opengl.GLWindow;
 import com.jogamp.opengl.test.junit.util.AWTRobotUtil;
 import com.jogamp.opengl.test.junit.util.UITestCase;
@@ -53,6 +52,7 @@ public class TestCloseNewtAWT extends UITestCase {
     NewtCanvasAWT newtCanvas = null;
     JFrame frame = null;
 
+    @SuppressWarnings("serial")
     class MyCanvas extends NewtCanvasAWT {
          public MyCanvas(Window window) {
             super(window);
@@ -78,7 +78,7 @@ public class TestCloseNewtAWT extends UITestCase {
                     NativeWindow nw = MyCanvas.this.getNativeWindow();
                     if(null != nw) {
                         Point p = nw.getLocationOnScreen(null);
-                        System.err.println("MyCanvas On NEWT-EDT: position: "+p);
+                        System.err.println("MyCanvas On NEWT-EDT: position: "+p);                        
                     } else {
                         System.err.println("MyCanvas On NEWT-EDT: position n/a, null NativeWindow");
                     }
@@ -97,7 +97,7 @@ public class TestCloseNewtAWT extends UITestCase {
         newtWindow = GLWindow.create(new GLCapabilities(GLProfile.getDefault()));
         newtCanvas = new MyCanvas(newtWindow);
 
-        SwingUtilities.invokeLater(new Runnable() {
+        SwingUtilities.invokeAndWait(new Runnable() {
             public void run() {
                 frame = new JFrame("NEWT Close Test");
                 frame.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
@@ -107,11 +107,9 @@ public class TestCloseNewtAWT extends UITestCase {
                 frame.setVisible(true);
             }
         });
-        Thread.sleep(1000);
+        Thread.sleep(500);
 
         Assert.assertEquals(true,  AWTRobotUtil.closeWindow(frame, true));
-
-        GLProfile.shutdown();
     }
 
     public static void main(String[] args) {

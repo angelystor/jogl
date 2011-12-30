@@ -43,9 +43,13 @@ import jogamp.opengl.GLDynamicLookupHelper;
 import jogamp.opengl.DesktopGLDynamicLookupHelper;
 
 import com.jogamp.common.GlueGenVersion;
-import com.jogamp.common.jvm.JVMUtil;
+import com.jogamp.common.jvm.JNILibLoaderBase;
+import com.jogamp.common.os.Platform;
 import com.jogamp.common.util.ReflectionUtil;
 import com.jogamp.common.util.VersionUtil;
+import com.jogamp.common.util.cache.TempJarCache;
+import com.jogamp.common.util.locks.LockFactory;
+import com.jogamp.common.util.locks.RecursiveThreadGroupLock;
 import com.jogamp.nativewindow.NativeWindowVersion;
 import com.jogamp.opengl.JoglVersion;
 
@@ -72,74 +76,132 @@ public class GLProfile {
     
     public static final boolean DEBUG = Debug.debug("GLProfile");
 
+    static {
+        // Also initializes TempJarCache if shall be used.
+        Platform.initSingleton();
+    }
+    
     /**
-     * Static one time initialization of JOGL.
+     * Static initialization of JOGL.
      * <p>
      * The parameter <code>firstUIActionOnProcess</code> has an impact on concurrent locking,<br>
      * see {@link javax.media.nativewindow.NativeWindowFactory#initSingleton(boolean) NativeWindowFactory.initSingleton(firstUIActionOnProcess)}.
      * </p>
      * <p>
-     * Applications shall call this methods <b>ASAP</b>, before any other UI invocation.<br>
-     * You may issue the call in your <code>main class</code> static block, which is the earliest point in your application/applet lifecycle,
-     * or within the <code>main function</code>.<br>
-     * In case applications are able to initialize JOGL before any other UI action,<br>
-     * they shall invoke this method with <code>firstUIActionOnProcess=true</code> and benefit from fast native multithreading support on all platforms if possible.</P>
+     * Applications using this method may place it's call before any other UI invocation
+     * in the <code>main class</code>'s static block or within the <code>main function</code>.
+     * In such case, applications may pass <code>firstUIActionOnProcess=true</code> to use native toolkit locking.</P>
      * <P>
-     * RCP Application (Applet's, Webstart, Netbeans, ..) using JOGL may not be able to initialize JOGL
-     * before the first UI action.<br>
-     * In such case you shall invoke this method with <code>firstUIActionOnProcess=false</code>.<br>
-     * On some platforms, notably X11 with AWT usage, JOGL will utilize special locking mechanisms which may slow down your
-     * application.</P>
+     * RCP Application (Applet's, Webstart, Netbeans, ..) using JOGL are not be able to initialize JOGL
+     * before the first UI action.
+     * In such case you shall pass <code>firstUIActionOnProcess=false</code>.</P>
      * <P>
-     * Remark: NEWT is currently not affected by this behavior, ie always uses native multithreading.</P>
+     * In case this method is not invoked, GLProfile is initialized implicit by
+     * the first call to {@link #getDefault()}, {@link #get(java.lang.String)} passing <code>firstUIActionOnProcess=false</code>.
      * <P>
-     * However, in case this method is not invoked, hence GLProfile is not initialized explicitly by the user,<br>
-     * the first call to {@link #getDefault()}, {@link #get(java.lang.String)}, etc, will initialize with <code>firstUIActionOnProcess=false</code>,<br>
-     * hence without the possibility to enable native multithreading.<br>
-     * This is not the recommended way, since it may has a performance impact, but it allows you to run code without explicit initialization.</P>
-     * <P>
-     * In case no explicit initialization was invoked and the implicit initialization didn't happen,<br>
-     * you may encounter the following exception:
-     * <pre>
-     *      javax.media.opengl.GLException: No default profile available
-     * </pre></P>
      *
      * @param firstUIActionOnProcess Should be <code>true</code> if called before the first UI action of the running program,
      * otherwise <code>false</code>.
+     * 
+     * @deprecated This method shall not need to be called for other reasons than having a defined initialization sequence.
+     *             To ensure homogeneous behavior with application not calling this method, you shall pass <code>firstUIActionOnProcess=false</code>.
+     *             This method is subject to be removed in future versions of JOGL. 
      */
-    public static synchronized void initSingleton(final boolean firstUIActionOnProcess) {
-        if(!initialized) {
-            initialized = true;
-            // run the whole static initialization privileged to speed up,
-            // since this skips checking further access
-            AccessController.doPrivileged(new PrivilegedAction() {
-                public Object run() {
-                    initProfilesForDefaultDevices(firstUIActionOnProcess);
-                    return null;
+    public static void initSingleton(final boolean firstUIActionOnProcess) {
+        initLock.lock();
+        try {
+            if(!initialized) { // volatile: ok
+                initialized = true;
+                if(DEBUG) {
+                    System.err.println("GLProfile.initSingleton(firstUIActionOnProcess: "+firstUIActionOnProcess+") - thread "+Thread.currentThread().getName());
+                    Thread.dumpStack();
                 }
-            });
+    
+                // run the whole static initialization privileged to speed up,
+                // since this skips checking further access
+                AccessController.doPrivileged(new PrivilegedAction<Object>() {
+                    public Object run() {
+                        Platform.initSingleton();
+                        
+                        if(TempJarCache.isInitialized()) {
+                           String[] atomicNativeJarBaseNames = new String[] { "nativewindow", "jogl", null };
+                           if( ReflectionUtil.isClassAvailable("com.jogamp.newt.NewtFactory", GLProfile.class.getClassLoader()) ) {
+                               atomicNativeJarBaseNames[2] = "newt";
+                           }
+                           JNILibLoaderBase.addNativeJarLibs(GLProfile.class, "jogl-all", atomicNativeJarBaseNames);
+                        }
+                        initProfilesForDefaultDevices(firstUIActionOnProcess);
+                        return null;
+                    }
+                });
+            }
+        } finally {
+            initLock.unlock();
         }
+    }
+    
+    /**
+     * Static initialization of JOGL.
+     *
+     * <p>
+     * This method shall not need to be called for other reasons than having a defined initialization sequence.
+     * </p>
+     */
+    public static void initSingleton() {
+        GLProfile.initSingleton(false);
     }
 
     /**
      * Trigger eager initialization of GLProfiles for the given device,
      * in case it isn't done yet.
+     * 
+     * @throws GLException if no profile for the given device is available.
      */
-    public static void initProfiles(AbstractGraphicsDevice device) {
-        getProfileMap(device);
+    public static void initProfiles(AbstractGraphicsDevice device) throws GLException {
+        getProfileMap(device, true);
     }
 
+    /** 
+     * Shutdown type for {@link GLProfile#shutdown(ShutdownType)}.
+     * <p>
+     * {@link #SHARED_ONLY} For thread based resources only, suitable for eg. {@link java.applet.Applet Applet} restart.<br>
+     * {@link #COMPLETE} Everything.<br>
+     * </p>
+     */ 
+    public enum ShutdownType {
+        /* Shared thread based resources only, eg. for Applets */ 
+        SHARED_ONLY,
+        /* Everything */
+        COMPLETE;
+    }
+    
     /**
      * Manual shutdown method, may be called after your last JOGL use
      * within the running JVM.<br>
      * It releases all temporary created resources, ie issues {@link javax.media.opengl.GLDrawableFactory#shutdown()}.<br>
-     * The shutdown implementation is called via the JVM shutdown hook, if not manually invoked here.<br>
-     * Invoke <code>shutdown()</code> manually is recommended, due to the unreliable JVM state within the shutdown hook.<br>
+     * The shutdown implementation is called via the JVM shutdown hook, if not manually invoked.<br>
+     * <p>
+     * This method shall not need to be called for other reasons than issuing a proper shutdown of resources.
+     * </p>
+     * @param type the shutdown type, see {@link ShutdownType}.
      */
-    public static synchronized void shutdown() {
-        if(initialized) {
-            initialized = false;
-            GLDrawableFactory.shutdown();
+    public static void shutdown(ShutdownType type) {
+        initLock.lock();
+        try {
+            if(initialized) { // volatile: ok
+                initialized = false;
+                if(DEBUG) {
+                    System.err.println("GLProfile.shutdown(type: "+type+") - thread "+Thread.currentThread().getName());
+                    Thread.dumpStack();
+                }                    
+                GLDrawableFactory.shutdown(type);
+                if(ShutdownType.COMPLETE == type) {
+                    GLContext.shutdown();
+                }
+                NativeWindowFactory.shutdown();
+            }
+        } finally {
+            initLock.unlock();
         }
     }
 
@@ -147,164 +209,126 @@ public class GLProfile {
     // Query platform available OpenGL implementation
     //
 
-    public static boolean isGL4bcAvailable(AbstractGraphicsDevice device)   {
-        return null != getProfileMap(device).get(GL4bc);
+    /** 
+     * Returns the availability of a profile on a device.
+     * 
+     * @param device a valid AbstractGraphicsDevice, or <code>null</null> for the default device.
+     * @param profile a valid GLProfile name ({@link #GL4bc}, {@link #GL4}, {@link #GL2}, ..), 
+     *        or <code>[ null, GL ]</code> for the default profile.
+     * @return true if the profile is available for the device, otherwise false.
+     */
+    public static boolean isAvailable(AbstractGraphicsDevice device, String profile) {
+        initSingleton();
+        return isAvailableImpl(getProfileMap(device, false), profile);
     }
-
-    public static boolean isGL4Available(AbstractGraphicsDevice device)     {
-        return null != getProfileMap(device).get(GL4);
+    private static boolean isAvailableImpl(HashMap<String /*GLProfile_name*/, GLProfile> map, String profile) {
+        return null != map && null != map.get(profile);
     }
-
-    public static boolean isGL3bcAvailable(AbstractGraphicsDevice device) {
-        return null != getProfileMap(device).get(GL3bc);
+    
+    /** 
+     * Returns the availability of a profile on the default device.
+     * 
+     * @param profile a valid GLProfile name ({@link #GL4bc}, {@link #GL4}, {@link #GL2}, ..), 
+     *        or <code>[ null, GL ]</code> for the default profile.
+     * @return true if the profile is available for the default device, otherwise false.
+     */
+    public static boolean isAvailable(String profile) {
+        return isAvailable(null, profile);
     }
-
-    public static boolean isGL3Available(AbstractGraphicsDevice device) {
-        return null != getProfileMap(device).get(GL3);
+    
+    /** 
+     * Returns the availability of any profile on the default device.
+     * 
+     * @return true if any profile is available for the default device, otherwise false.
+     */
+    public static boolean isAnyAvailable() {
+        return isAvailable(null, null);
     }
-
-    public static boolean isGL2Available(AbstractGraphicsDevice device) {
-        return null != getProfileMap(device).get(GL2);
-    }
-
-    public static boolean isGLES2Available(AbstractGraphicsDevice device) {
-        return null != getProfileMap(device).get(GLES2);
-    }
-
-    public static boolean isGLES1Available(AbstractGraphicsDevice device) {
-        return null != getProfileMap(device).get(GLES1);
-    }
-
-    public static boolean isGL2ES1Available(AbstractGraphicsDevice device) {
-        return null != getProfileMap(device).get(GL2ES1);
-    }
-
-    public static boolean isGL2ES2Available(AbstractGraphicsDevice device) {
-        return null != getProfileMap(device).get(GL2ES2);
-    }
-
-    /** Uses the default device */
-    public static boolean isGL4bcAvailable()   {
-        return isGL4bcAvailable(null);
-    }
-
-    /** Uses the default device */
-    public static boolean isGL4Available()     {
-        return isGL4Available(null);
-    }
-
-    /** Uses the default device */
-    public static boolean isGL3bcAvailable() {
-        return isGL3bcAvailable(null);
-    }
-
-    /** Uses the default device */
-    public static boolean isGL3Available() {
-        return isGL3Available(null);
-    }
-
-    /** Uses the default device */
-    public static boolean isGL2Available() {
-        return isGL2Available(null);
-    }
-
-    /** Uses the default device */
-    public static boolean isGLES2Available() {
-        return isGLES2Available(null);
-    }
-
-    /** Uses the default device */
-    public static boolean isGLES1Available() {
-        return isGLES1Available(null);
-    }
-
-    /** Uses the default device */
-    public static boolean isGL2ES1Available() {
-        return isGL2ES1Available(null);
-    }
-
-    /** Uses the default device */
-    public static boolean isGL2ES2Available() {
-        return isGL2ES2Available(null);
-    }
-
+    
     public static String glAvailabilityToString(AbstractGraphicsDevice device) {
         boolean avail;
         StringBuffer sb = new StringBuffer();
 
-        validateInitialization();
-
+        initSingleton();
+        
         if(null==device) {
             device = defaultDevice;
         }
-
+        final HashMap<String /*GLProfile_name*/, GLProfile> map = getProfileMap(device, false);
+        
         sb.append("GLAvailability[Native[GL4bc ");
-        avail=isGL4bcAvailable(device);
+        avail=isAvailableImpl(map, GL4bc);
         sb.append(avail);
         if(avail) {
             glAvailabilityToString(device, sb, 4, GLContext.CTX_PROFILE_COMPAT);
         }
 
         sb.append(", GL4 ");
-        avail=isGL4Available(device);
+        avail=isAvailableImpl(map, GL4);
         sb.append(avail);
         if(avail) {
             glAvailabilityToString(device, sb, 4, GLContext.CTX_PROFILE_CORE);
         }
 
         sb.append(", GL3bc ");
-        avail=isGL3bcAvailable(device);
+        avail=isAvailableImpl(map, GL3bc);
         sb.append(avail);
         if(avail) {
             glAvailabilityToString(device, sb, 3, GLContext.CTX_PROFILE_COMPAT);
         }
 
         sb.append(", GL3 ");
-        avail=isGL3Available(device);
+        avail=isAvailableImpl(map, GL3);
         sb.append(avail);
         if(avail) {
             glAvailabilityToString(device, sb, 3, GLContext.CTX_PROFILE_CORE);
         }
 
         sb.append(", GL2 ");
-        avail=isGL2Available(device);
+        avail=isAvailableImpl(map, GL2);
         sb.append(avail);
         if(avail) {
             glAvailabilityToString(device, sb, 2, GLContext.CTX_PROFILE_COMPAT);
         }
 
         sb.append(", GL2ES1 ");
-        sb.append(isGL2ES1Available(device));
+        sb.append(isAvailableImpl(map, GL2ES1));
 
         sb.append(", GLES1 ");
-        avail=isGLES1Available(device);
+        avail=isAvailableImpl(map, GLES1);
         sb.append(avail);
         if(avail) {
             glAvailabilityToString(device, sb, 1, GLContext.CTX_PROFILE_ES);
         }
 
         sb.append(", GL2ES2 ");
-        sb.append(isGL2ES2Available(device));
+        sb.append(isAvailableImpl(map, GL2ES2));
 
         sb.append(", GLES2 ");
-        avail=isGLES2Available(device);
+        avail=isAvailableImpl(map, GLES2);
         sb.append(avail);
         if(avail) {
             glAvailabilityToString(device, sb, 2, GLContext.CTX_PROFILE_ES);
         }
 
         sb.append("], Profiles[");
-        for(Iterator i=getProfileMap(device).values().iterator(); i.hasNext(); ) {
-            sb.append(((GLProfile)i.next()).toString());
-            sb.append(", ");
+        if(null != map) {
+            for(Iterator<GLProfile> i=map.values().iterator(); i.hasNext(); ) {
+                sb.append(i.next().toString());
+                sb.append(", ");
+            }
+            sb.append(", default ");
+            try {
+                sb.append(getDefault(device));
+            } catch (GLException gle) {
+                sb.append("n/a");
+            }
         }
-        sb.append(", default ");
-        sb.append(getDefault(device));
         sb.append("]]");
 
         return sb.toString();
     }
-
+    
     /** Uses the default device */
     public static String glAvailabilityToString() {
         return glAvailabilityToString(null);
@@ -388,6 +412,22 @@ public class GLProfile {
     public static final String[] GL_PROFILE_LIST_MAX = new String[] { GL4bc, GL4, GL3bc, GL3, GL2, GLES2, GLES1 };
 
     /**
+     * Order of minimum profiles.
+     *
+     * <ul>
+     *  <li> GLES1
+     *  <li> GLES2
+     *  <li> GL2
+     *  <li> GL3
+     *  <li> GL3bc
+     *  <li> GL4
+     *  <li> GL4bc
+     * </ul>
+     *
+     */
+    public static final String[] GL_PROFILE_LIST_MIN = new String[] { GLES1, GLES2, GL2, GL3, GL3bc, GL4, GL4bc };
+    
+    /**
      * Order of minimum original desktop profiles.
      *
      * <ul>
@@ -400,7 +440,7 @@ public class GLProfile {
      *
      */
     public static final String[] GL_PROFILE_LIST_MIN_DESKTOP = new String[] { GL2, GL3bc, GL4bc, GL3, GL4 };
-
+    
     /**
      * Order of maximum fixed function profiles
      *
@@ -429,33 +469,9 @@ public class GLProfile {
      */
     public static final String[] GL_PROFILE_LIST_MAX_PROGSHADER   = new String[] { GL4bc, GL4, GL3bc, GL3, GL2, GLES2 };
 
-    /**
-     * All GL2ES2 Profiles in the order of default detection.
-     *
-     * @see #GL_PROFILE_LIST_MAX_PROGSHADER
-     */
-    public static final String[] GL_PROFILE_LIST_GL2ES2 = GL_PROFILE_LIST_MAX_PROGSHADER;
-
-    /**
-     * All GL2ES1 Profiles in the order of default detection.
-     *
-     * @see #GL_PROFILE_LIST_MAX_FIXEDFUNC
-     */
-    public static final String[] GL_PROFILE_LIST_GL2ES1 = GL_PROFILE_LIST_MAX_FIXEDFUNC;
-
-    /**
-     * All GLES Profiles in the order of default detection.
-     *
-     * <ul>
-     *  <li> GLES2
-     *  <li> GLES1
-     * </ul>
-     *
-     */
-    public static final String[] GL_PROFILE_LIST_GLES = new String[] { GLES2, GLES1 };
-
     /** Returns a default GLProfile object, reflecting the best for the running platform.
      * It selects the first of the set {@link GLProfile#GL_PROFILE_LIST_ALL}
+     * @throws GLException if no profile is available for the device.
      * @see #GL_PROFILE_LIST_ALL
      */
     public static GLProfile getDefault(AbstractGraphicsDevice device) {
@@ -463,7 +479,9 @@ public class GLProfile {
         return glp;
     }
 
-    /** Uses the default device */
+    /** Uses the default device 
+     * @throws GLException if no profile is available for the default device.
+     */
     public static GLProfile getDefault() {
         return getDefault(defaultDevice);
     }
@@ -472,7 +490,7 @@ public class GLProfile {
      * Returns the highest profile.
      * It selects the first of the set: {@link GLProfile#GL_PROFILE_LIST_MAX}
      *
-     * @throws GLException if no implementation for the given profile is found.
+     * @throws GLException if no profile is available for the device.
      * @see #GL_PROFILE_LIST_MAX
      */
     public static GLProfile getMaximum(AbstractGraphicsDevice device)
@@ -481,7 +499,10 @@ public class GLProfile {
         return get(device, GL_PROFILE_LIST_MAX);
     }
 
-    /** Uses the default device */
+    /** Uses the default device 
+     * @throws GLException if no profile is available for the default device.
+     * @see #GL_PROFILE_LIST_MAX
+     */
     public static GLProfile getMaximum()
         throws GLException
     {
@@ -489,23 +510,26 @@ public class GLProfile {
     }
 
     /**
-     * Returns the lowest desktop profile.
-     * It selects the first of the set: {@link GLProfile#GL_PROFILE_LIST_MIN_DESKTOP}
+     * Returns the lowest profile.
+     * It selects the first of the set: {@link GLProfile#GL_PROFILE_LIST_MIN}
      *
-     * @throws GLException if no implementation for the given profile is found.
-     * @see #GL_PROFILE_LIST_MIN_DESKTOP
+     * @throws GLException if no desktop profile is available for the device.
+     * @see #GL_PROFILE_LIST_MIN
      */
-    public static GLProfile getMinDesktop(AbstractGraphicsDevice device)
+    public static GLProfile getMinimum(AbstractGraphicsDevice device)
         throws GLException
     {
-        return get(device, GL_PROFILE_LIST_MIN_DESKTOP);
+        return get(device, GL_PROFILE_LIST_MIN);
     }
 
-    /** Uses the default device */
-    public static GLProfile getMinDesktop()
+    /** Uses the default device 
+     * @throws GLException if no desktop profile is available for the default device.
+     * @see #GL_PROFILE_LIST_MIN
+     */
+    public static GLProfile getMinimum()
         throws GLException
     {
-        return get(GL_PROFILE_LIST_MIN_DESKTOP);
+        return get(GL_PROFILE_LIST_MIN);
     }
 
 
@@ -513,7 +537,7 @@ public class GLProfile {
      * Returns the highest profile, implementing the fixed function pipeline.
      * It selects the first of the set: {@link GLProfile#GL_PROFILE_LIST_MAX_FIXEDFUNC}
      *
-     * @throws GLException if no implementation for the given profile is found.
+     * @throws GLException if no fixed function profile is available for the device.
      * @see #GL_PROFILE_LIST_MAX_FIXEDFUNC
      */
     public static GLProfile getMaxFixedFunc(AbstractGraphicsDevice device)
@@ -522,7 +546,10 @@ public class GLProfile {
         return get(device, GL_PROFILE_LIST_MAX_FIXEDFUNC);
     }
 
-    /** Uses the default device */
+    /** Uses the default device 
+     * @throws GLException if no fixed function profile is available for the default device.
+     * @see #GL_PROFILE_LIST_MAX_FIXEDFUNC
+     */
     public static GLProfile getMaxFixedFunc()
         throws GLException
     {
@@ -533,7 +560,7 @@ public class GLProfile {
      * Returns the highest profile, implementing the programmable shader pipeline.
      * It selects the first of the set: {@link GLProfile#GL_PROFILE_LIST_MAX_PROGSHADER}
      *
-     * @throws GLException if no implementation for the given profile is found.
+     * @throws GLException if no programmable profile is available for the device.
      * @see #GL_PROFILE_LIST_MAX_PROGSHADER
      */
     public static GLProfile getMaxProgrammable(AbstractGraphicsDevice device)
@@ -542,63 +569,68 @@ public class GLProfile {
         return get(device, GL_PROFILE_LIST_MAX_PROGSHADER);
     }
 
-    /** Uses the default device */
+    /** Uses the default device 
+     * @throws GLException if no programmable profile is available for the default device.
+     * @see #GL_PROFILE_LIST_MAX_PROGSHADER
+     */
     public static GLProfile getMaxProgrammable()
         throws GLException
     {
         return get(GL_PROFILE_LIST_MAX_PROGSHADER);
     }
 
-    /**
-     * Returns an available GL2ES1 compatible profile.
-     * It returns the first available of the set: {@link GLProfile#GL_PROFILE_LIST_GL2ES1}.
-     * 
-     * @throws GLException if no implementation for the given profile is found.
-     * @see #GL_PROFILE_LIST_GL2ES1
+    /** 
+     * Returns the GL2ES1 profile implementation, hence compatible w/ GL2ES1.<br/>
+     * It returns:
+     * <pre>
+     *   GLProfile.get(device, GLProfile.GL2ES1).getImpl());
+     * </pre>
+     *
+     * @throws GLException if no GL2ES1 compatible profile is available for the default device.
+     * @see #get(AbstractGraphicsDevice, String)
+     * @see #getImpl()
      */
     public static GLProfile getGL2ES1(AbstractGraphicsDevice device)
         throws GLException
     {
-        return get(device, GL_PROFILE_LIST_GL2ES1);
+        return get(device, GL2ES1).getImpl();
     }
 
-    /**
-     * Returns an available GL2ES1 compatible profile.
-     * It returns the first available of the set: {@link GLProfile#GL_PROFILE_LIST_GL2ES1}.
-     * 
-     * @throws GLException if no implementation for the given profile is found.
-     * @see #GL_PROFILE_LIST_GL2ES1
+    /** 
+     * Calls {@link #getGL2ES1(AbstractGraphicsDevice)} using the default device. 
+     * @see #getGL2ES1(AbstractGraphicsDevice)
      */
     public static GLProfile getGL2ES1()
         throws GLException
     {
-        return get(GL_PROFILE_LIST_GL2ES1);
+        return get(defaultDevice, GL2ES1).getImpl();
     }
 
-    /**
-     * Returns an available GL2ES2 compatible profile.
-     * It returns the first available of the set: {@link GLProfile#GL_PROFILE_LIST_GL2ES2}.
+    /** 
+     * Returns the GL2ES2 profile implementation, hence compatible w/ GL2ES2.<br/>
+     * It returns:
+     * <pre>
+     *   GLProfile.get(device, GLProfile.GL2ES2).getImpl());
+     * </pre>
      *
-     * @throws GLException if no implementation for the given profile is found.
-     * @see #GL_PROFILE_LIST_GL2ES2
+     * @throws GLException if no GL2ES2 compatible profile is available for the default device.
+     * @see #get(AbstractGraphicsDevice, String)
+     * @see #getImpl()
      */
     public static GLProfile getGL2ES2(AbstractGraphicsDevice device)
         throws GLException
     {
-        return get(device, GL_PROFILE_LIST_GL2ES2);
+        return get(device, GL2ES2).getImpl();
     }
 
     /** 
-     * Returns an available GL2ES2 compatible profile
-     * It returns the first available of the set: {@link GLProfile#GL_PROFILE_LIST_GL2ES2}.
-     *
-     * @throws GLException if no implementation for the given profile is found.
-     * @see #GL_PROFILE_LIST_GL2ES2
+     * Calls {@link #getGL2ES2(AbstractGraphicsDevice)} using the default device. 
+     * @see #getGL2ES2(AbstractGraphicsDevice)
      */
     public static GLProfile getGL2ES2()
         throws GLException
     {
-        return get(GL_PROFILE_LIST_GL2ES2);
+        return get(defaultDevice, GL2ES2).getImpl();
     }
 
     /** Returns a GLProfile object.
@@ -606,7 +638,10 @@ public class GLProfile {
      * A generic value of <code>null</code> or <code>GL</code> will result in
      * the default profile.
      *
-     * @throws GLException if no implementation for the given profile is found.
+     * @param device a valid AbstractGraphicsDevice, or <code>null</null> for the default device.
+     * @param profile a valid GLProfile name ({@link #GL4bc}, {@link #GL4}, {@link #GL2}, ..), 
+     *        or <code>[ null, GL ]</code> for the default profile.
+     * @throws GLException if the requested profile is not available for the device.
      */
     public static GLProfile get(AbstractGraphicsDevice device, String profile)
         throws GLException
@@ -614,10 +649,19 @@ public class GLProfile {
         if(null==profile || profile.equals("GL")) {
             profile = GL_DEFAULT;
         }
-        return (GLProfile) getProfileMap(device).get(profile);
+        final HashMap<String /*GLProfile_name*/, GLProfile> glpMap = getProfileMap(device, true);
+        final GLProfile glp = glpMap.get(profile);
+        if(null == glp) {
+            throw new GLException("Profile "+profile+" is not available on "+device+", but: "+glpMap.values());
+        }
+        return glp;
     }
 
-    /** Uses the default device */
+    /** Uses the default device 
+     * @param profile a valid GLProfile name ({@link #GL4bc}, {@link #GL4}, {@link #GL2}, ..), 
+     *        or <code>[ null, GL ]</code> for the default profile.
+     * @throws GLException if the requested profile is not available for the default device.
+     */
     public static GLProfile get(String profile)
         throws GLException
     {
@@ -628,15 +672,17 @@ public class GLProfile {
      * Returns the first profile from the given list,
      * where an implementation is available.
      *
-     * @throws GLException if no implementation for the given profile is found.
+     * @param device a valid AbstractGraphicsDevice, or <code>null</null> for the default device.
+     * @param profiles array of valid GLProfile name ({@link #GL4bc}, {@link #GL4}, {@link #GL2}, ..) 
+     * @throws GLException if the non of the requested profiles is available for the device.
      */
     public static GLProfile get(AbstractGraphicsDevice device, String[] profiles)
         throws GLException
     {
-        HashMap map = getProfileMap(device);
+        HashMap<String /*GLProfile_name*/, GLProfile> map = getProfileMap(device, true);
         for(int i=0; i<profiles.length; i++) {
             String profile = profiles[i];
-            GLProfile glProfile = (GLProfile) map.get(profile);
+            GLProfile glProfile = map.get(profile);
             if(null!=glProfile) {
                 return glProfile;
             }
@@ -644,13 +690,16 @@ public class GLProfile {
         throw new GLException("Profiles "+array2String(profiles)+" not available on device "+device);
     }
 
-    /** Uses the default device */
+    /** Uses the default device 
+     * @param profiles array of valid GLProfile name ({@link #GL4bc}, {@link #GL4}, {@link #GL2}, ..) 
+     * @throws GLException if the non of the requested profiles is available for the default device.
+     */
     public static GLProfile get(String[] profiles)
         throws GLException
     {
         return get(defaultDevice, profiles);
     }
-
+    
     /** Indicates whether the native OpenGL ES1 profile is in use. 
      * This requires an EGL interface.
      */
@@ -719,7 +768,7 @@ public class GLProfile {
     }
 
     public final String getGLImplBaseClassName() {
-        return getGLImplBaseClassName(profileImpl);
+        return getGLImplBaseClassName(getImplName());
     }
 
     /**
@@ -731,15 +780,15 @@ public class GLProfile {
         if(this==o) { return true; }
         if(o instanceof GLProfile) {
             GLProfile glp = (GLProfile)o;
-            return profile.equals(glp.getName()) && profileImpl.equals(glp.getImplName()) ;
+            return getName().equals(glp.getName()) && getImplName().equals(glp.getImplName()) ;
         }
         return false;
     }
 
     public int hashCode() {
         int hash = 5;
-        hash = 97 * hash + (this.profileImpl != null ? this.profileImpl.hashCode() : 0);
-        hash = 97 * hash + (this.profile != null ? this.profile.hashCode() : 0);
+        hash = 97 * hash + getImplName().hashCode();
+        hash = 97 * hash + getName().hashCode();
         return hash;
     }
  
@@ -753,12 +802,21 @@ public class GLProfile {
         }
     }
 
+    /** return this profiles name */
     public final String getName() {
         return profile;
     }
 
+    /** return this profiles implementation, eg. GL2ES2 -> GL2, or GL3 -> GL3 */
+    public final GLProfile getImpl() {
+        return null != profileImpl ? profileImpl : this;
+    }
+    
+    /** 
+     * return this profiles implementation name, eg. GL2ES2 -> GL2, or GL3 -> GL3 
+     */
     public final String getImplName() {
-        return profileImpl;
+        return null != profileImpl ? profileImpl.getName() : getName();
     }
 
     /** Indicates whether this profile is capable of GL4bc. */
@@ -818,12 +876,12 @@ public class GLProfile {
 
     /** Indicates whether this profile uses the native OpenGL ES1 implementations. */
     public final boolean usesNativeGLES1() {
-        return GLES1.equals(profileImpl);
+        return GLES1.equals(getImplName());
     }
 
     /** Indicates whether this profile uses the native OpenGL ES2 implementations. */
     public final boolean usesNativeGLES2() {
-        return GLES2.equals(profileImpl);
+        return GLES2.equals(getImplName());
     }
 
     /** Indicates whether this profile uses either of the native OpenGL ES implementations. */
@@ -968,6 +1026,7 @@ public class GLProfile {
                     }
                     return false;
             }
+            /** unable to validate .. could be any valid type/component combination
             switch(comps) {
                 case 0:
                 case 1:
@@ -977,10 +1036,10 @@ public class GLProfile {
                     break;
                 default: 
                     if(throwException) {
-                        throw new GLException("Illegal component number for "+arrayName+" on profile GLES1: "+comps);
+                        throw new GLException("Illegal component number for "+arrayName+" on profile GLES2: "+comps);
                     }
                     return false;
-            }
+            } */
         } else if( isGL2ES2() ) {
             if(isVertexAttribPointer) {
                 switch(type) {
@@ -1128,17 +1187,14 @@ public class GLProfile {
     }
 
     public String toString() {
-        return "GLProfile[" + profile + "/" + profileImpl + "]";
-    }
-
-    static {
-        JVMUtil.initSingleton();
+        return "GLProfile[" + getName() + "/" + getImplName() + "]";
     }
 
     private static /*final*/ boolean isAWTAvailable;
 
-    private static /*final*/ boolean hasDesktopGL;    
+    private static /*final*/ boolean hasDesktopGLFactory;    
     private static /*final*/ boolean hasGL234Impl;
+    private static /*final*/ boolean hasEGLFactory;
     private static /*final*/ boolean hasGLES2Impl;
     private static /*final*/ boolean hasGLES1Impl;
 
@@ -1148,11 +1204,11 @@ public class GLProfile {
     private static /*final*/ AbstractGraphicsDevice defaultDesktopDevice;
     private static /*final*/ AbstractGraphicsDevice defaultEGLDevice;
 
-    static boolean initialized = false;
+    private static volatile boolean initialized = false;
+    private static RecursiveThreadGroupLock initLock = LockFactory.createRecursiveThreadGroupLock();
 
     /**
      * Tries the profiles implementation and native libraries.
-     * Throws an GLException if no profile could be found at all.
      */
     private static void initProfilesForDefaultDevices(boolean firstUIActionOnProcess) {
         NativeWindowFactory.initSingleton(firstUIActionOnProcess);
@@ -1171,7 +1227,12 @@ public class GLProfile {
         isAWTAvailable = NativeWindowFactory.isAWTAvailable() &&
                          ReflectionUtil.isClassAvailable("javax.media.opengl.awt.GLCanvas", classloader) ; // JOGL
 
+        // depends on hasDesktopGLFactory
         hasGL234Impl   = ReflectionUtil.isClassAvailable("jogamp.opengl.gl4.GL4bcImpl", classloader);
+        
+        // depends on hasEGLFactory
+        hasGLES1Impl   = ReflectionUtil.isClassAvailable("jogamp.opengl.es1.GLES1Impl", classloader);
+        hasGLES2Impl   = ReflectionUtil.isClassAvailable("jogamp.opengl.es2.GLES2Impl", classloader);
         
         //
         // Iteration of desktop GL availability detection
@@ -1180,6 +1241,8 @@ public class GLProfile {
         // - Instantiate GLDrawableFactory incl its shared dummy drawable/context,
         //   which will register at GLContext ..
         //
+        GLDrawableFactory.initSingleton();
+        
         Throwable t=null;
         // if successfull it has a shared dummy drawable and context created
         try {
@@ -1187,7 +1250,7 @@ public class GLProfile {
             if(null != desktopFactory) {
                 DesktopGLDynamicLookupHelper glLookupHelper = (DesktopGLDynamicLookupHelper) desktopFactory.getGLDynamicLookupHelper(0);
                 if(null!=glLookupHelper) {
-                    hasDesktopGL = glLookupHelper.hasGLBinding();
+                    hasDesktopGLFactory = glLookupHelper.isLibComplete() && hasGL234Impl;
                 }
             }
         } catch (LinkageError le) {
@@ -1207,7 +1270,7 @@ public class GLProfile {
         }
 
         if(null == desktopFactory) {
-            hasDesktopGL   = false;
+            hasDesktopGLFactory   = false;
             hasGL234Impl   = false;
         } else {
             defaultDesktopDevice = desktopFactory.getDefaultDevice();
@@ -1219,13 +1282,15 @@ public class GLProfile {
             try {
                 eglFactory = (GLDrawableFactoryImpl) GLDrawableFactory.getFactoryImpl(GLES2);
                 if(null != eglFactory) {
+                    hasEGLFactory = true;
                     GLDynamicLookupHelper eglLookupHelper = eglFactory.getGLDynamicLookupHelper(2);
+                    // update hasGLES1Impl, hasGLES2Impl based on EGL
                     if(null!=eglLookupHelper) {
-                        hasGLES2Impl = eglLookupHelper.isLibComplete();
+                        hasGLES2Impl = eglLookupHelper.isLibComplete() && hasGLES2Impl;
                     }
                     eglLookupHelper = eglFactory.getGLDynamicLookupHelper(1);
                     if(null!=eglLookupHelper) {
-                        hasGLES1Impl = eglLookupHelper.isLibComplete();
+                        hasGLES1Impl = eglLookupHelper.isLibComplete() && hasGLES1Impl;
                     }
                 }
             } catch (LinkageError le) {
@@ -1257,24 +1322,22 @@ public class GLProfile {
             }
         }
 
-        boolean addedAnyProfile = initProfilesForDevice(defaultDesktopDevice) ||
-                                  initProfilesForDevice(defaultEGLDevice);
-        
+        final boolean addedDesktopProfile = initProfilesForDevice(defaultDesktopDevice);
+        final boolean addedEGLProfile = initProfilesForDevice(defaultEGLDevice);
+        final boolean addedAnyProfile = addedDesktopProfile || addedEGLProfile ;
+
         if(DEBUG) {
+            System.err.println("GLProfile.init addedAnyProfile(d/e) "+addedAnyProfile+" ("+addedDesktopProfile+"/"+addedEGLProfile+")");
             System.err.println("GLProfile.init isAWTAvailable       "+isAWTAvailable);
-            System.err.println("GLProfile.init has desktopFactory   "+(null!=desktopFactory));
-            System.err.println("GLProfile.init hasDesktopGL         "+hasDesktopGL);
+            System.err.println("GLProfile.init hasDesktopGLFactory  "+hasDesktopGLFactory);
             System.err.println("GLProfile.init hasGL234Impl         "+hasGL234Impl);
-            System.err.println("GLProfile.init has eglFactory       "+(null!=eglFactory));
+            System.err.println("GLProfile.init hasEGLFactory        "+hasEGLFactory);
             System.err.println("GLProfile.init hasGLES1Impl         "+hasGLES1Impl);
             System.err.println("GLProfile.init hasGLES2Impl         "+hasGLES2Impl);
             System.err.println("GLProfile.init defaultDesktopDevice "+defaultDesktopDevice);
             System.err.println("GLProfile.init defaultEGLDevice     "+defaultEGLDevice);
             System.err.println("GLProfile.init defaultDevice        "+defaultDevice);
-        }
-        
-        if(!addedAnyProfile) {
-            throw new GLException("No profile available: "+array2String(GL_PROFILE_LIST_ALL)+", "+ glAvailabilityToString());
+            System.err.println("GLProfile.init: "+array2String(GL_PROFILE_LIST_ALL)+", "+ glAvailabilityToString());
         }
     }
 
@@ -1282,19 +1345,24 @@ public class GLProfile {
      * @param device the device for which profiles shall be initialized
      * @return true if any profile for the device exists, otherwise false
      */
-    private static synchronized boolean initProfilesForDevice(AbstractGraphicsDevice device) {
+    private static boolean initProfilesForDevice(AbstractGraphicsDevice device) {
         if(null == device) {
             return false;
         }
-        GLDrawableFactory factory = GLDrawableFactory.getFactoryImpl(device);
-        factory.enterThreadCriticalZone();
+        initLock.lock();
         try {
-            return initProfilesForDeviceImpl(device);
+            GLDrawableFactory factory = GLDrawableFactory.getFactoryImpl(device);
+            factory.enterThreadCriticalZone();
+            try {
+                return initProfilesForDeviceCritical(device);
+            } finally {
+                factory.leaveThreadCriticalZone();
+            }
         } finally {
-            factory.leaveThreadCriticalZone();
+            initLock.unlock();
         }
     }
-    private static synchronized boolean initProfilesForDeviceImpl(AbstractGraphicsDevice device) {
+    private static boolean initProfilesForDeviceCritical(AbstractGraphicsDevice device) {
         boolean isSet = GLContext.getAvailableGLVersionsSet(device);
 
         if(DEBUG) {
@@ -1304,37 +1372,65 @@ public class GLProfile {
             // System.err.println(msg);
         }
         if(isSet) {
-            return null != GLProfile.getDefault(device);
+            return GLProfile.isAvailable(device, GL_DEFAULT);
         }
 
         boolean addedDesktopProfile = false;
         boolean addedEGLProfile = false;
-
-        if( hasDesktopGL && desktopFactory.getIsDeviceCompatible(device)) {
+        boolean deviceIsDesktopCompatible = false;
+        boolean deviceIsEGLCompatible = false;
+        
+        if( hasDesktopGLFactory && ( deviceIsDesktopCompatible = desktopFactory.getIsDeviceCompatible(device)) ) {
             // 1st pretend we have all Desktop and EGL profiles ..
-            computeProfileMap(device, true /* desktopCtxUndef*/, true  /* eglCtxUndef */);
+            computeProfileMap(device, true /* desktopCtxUndef*/, true  /* esCtxUndef */);
 
             // Triggers eager initialization of share context in GLDrawableFactory for the device,
             // hence querying all available GLProfiles
-            boolean desktopSharedCtxAvail = desktopFactory.getIsSharedContextAvailable(device);
+            final Thread sharedResourceThread = desktopFactory.getSharedResourceThread();
+            if(null != sharedResourceThread) {
+                initLock.addOwner(sharedResourceThread);
+            }
+            boolean desktopSharedCtxAvail = desktopFactory.createSharedResource(device);
+            if(null != sharedResourceThread) {
+                initLock.removeOwner(sharedResourceThread);
+            }
+            if(!desktopSharedCtxAvail) {
+                hasDesktopGLFactory = false;
+            }
             if (DEBUG) {
                 System.err.println("GLProfile.initProfilesForDevice: "+device+": desktop Shared Ctx "+desktopSharedCtxAvail);
             }
-            if( null == GLContext.getAvailableGLVersion(device, 2, GLContext.CTX_PROFILE_COMPAT) ) {
+            if( hasDesktopGLFactory && null == GLContext.getAvailableGLVersion(device, 2, GLContext.CTX_PROFILE_COMPAT) ) {
                 // nobody yet set the available desktop versions, see {@link GLContextImpl#makeCurrent},
                 // so we have to add the usual suspect
                 GLContext.mapAvailableGLVersion(device,
                                                 2, GLContext.CTX_PROFILE_COMPAT,
                                                 1, 5, GLContext.CTX_PROFILE_COMPAT|GLContext.CTX_OPTION_ANY);
             }
-            addedDesktopProfile = computeProfileMap(device, false /* desktopCtxUndef*/, false /* eglCtxUndef */);
-        } else if( null!=eglFactory && ( hasGLES2Impl || hasGLES1Impl ) && eglFactory.getIsDeviceCompatible(device)) {
+            addedDesktopProfile = computeProfileMap(device, false /* desktopCtxUndef*/, false /* esCtxUndef */);
+        } else if( hasEGLFactory && ( hasGLES2Impl || hasGLES1Impl ) && 
+                   ( deviceIsEGLCompatible = eglFactory.getIsDeviceCompatible(device)) ) {
             // 1st pretend we have all EGL profiles ..
-            computeProfileMap(device, false /* desktopCtxUndef*/, true /* eglCtxUndef */);
+            computeProfileMap(device, false /* desktopCtxUndef*/, true /* esCtxUndef */);
 
             // Triggers eager initialization of share context in GLDrawableFactory for the device,
             // hence querying all available GLProfiles
-            boolean eglSharedCtxAvail = eglFactory.getIsSharedContextAvailable(device);
+            final Thread sharedResourceThread = eglFactory.getSharedResourceThread();
+            if(null != sharedResourceThread) {
+                initLock.addOwner(sharedResourceThread);
+            }
+            boolean eglSharedCtxAvail = eglFactory.createSharedResource(device);
+            if(null != sharedResourceThread) {
+                initLock.removeOwner(sharedResourceThread);
+            }
+            if(!eglSharedCtxAvail) {
+                // Remark: On Windows there is a libEGL.dll delivered w/ Chrome 15.0.874.121m and Firefox 8.0.1
+                // but it seems even EGL.eglInitialize(eglDisplay, null, null) 
+                // fails in some scenarios (eg VirtualBox 4.1.6) w/ EGL error 0x3001 (EGL_NOT_INITIALIZED).
+                hasEGLFactory = false;
+                hasGLES2Impl = false;
+                hasGLES1Impl = false;
+            }
             if (DEBUG) {
                 System.err.println("GLProfile.initProfilesForDevice: "+device+": egl Shared Ctx "+eglSharedCtxAvail);
             }
@@ -1352,11 +1448,17 @@ public class GLProfile {
                                                 1, GLContext.CTX_PROFILE_ES,
                                                 1, 0, GLContext.CTX_PROFILE_ES|GLContext.CTX_OPTION_ANY);
             }
-            addedEGLProfile = computeProfileMap(device, false /* desktopCtxUndef*/, false /* eglCtxUndef */);
+            addedEGLProfile = computeProfileMap(device, false /* desktopCtxUndef*/, false /* esCtxUndef */);
         } else {
-            setProfileMap(device, new HashMap()); // empty
+            setProfileMap(device, new HashMap<String /*GLProfile_name*/, GLProfile>()); // empty
             if(DEBUG) {
-                System.err.println("GLProfile: EGLFactory - Device is not available: "+device);
+                System.err.println("GLProfile: device could not be initialized: "+device);
+                System.err.println("GLProfile: compatible w/ desktop: "+deviceIsDesktopCompatible+
+                                            ", egl "+deviceIsEGLCompatible);
+                System.err.println("GLProfile: desktoplFactory      "+desktopFactory);
+                System.err.println("GLProfile: eglFactory           "+eglFactory);
+                System.err.println("GLProfile: hasGLES1Impl         "+hasGLES1Impl);
+                System.err.println("GLProfile: hasGLES2Impl         "+hasGLES2Impl);
             }
         }
 
@@ -1369,13 +1471,13 @@ public class GLProfile {
             System.err.println("GLProfile.initProfilesForDevice: "+device.getConnection()+": "+glAvailabilityToString(device));
             if(addedDesktopProfile) {
                 dumpGLInfo(desktopFactory, device);
-                List/*<GLCapabilitiesImmutable>*/ availCaps = desktopFactory.getAvailableCapabilities(device);
+                List<GLCapabilitiesImmutable> availCaps = desktopFactory.getAvailableCapabilities(device);
                 for(int i=0; i<availCaps.size(); i++) {
                     System.err.println(availCaps.get(i));
                 }
             } else if(addedEGLProfile) {
                 dumpGLInfo(eglFactory, device);
-                List/*<GLCapabilitiesImmutable>*/ availCaps = eglFactory.getAvailableCapabilities(device);
+                List<GLCapabilitiesImmutable> availCaps = eglFactory.getAvailableCapabilities(device);
                 for(int i=0; i<availCaps.size(); i++) {
                     System.err.println(availCaps.get(i));
                 }
@@ -1401,28 +1503,18 @@ public class GLProfile {
     }
 
     public static AbstractGraphicsDevice getDefaultDevice() {
-        validateInitialization();
+        initSingleton();
         return defaultDevice;
     }
 
     public static AbstractGraphicsDevice getDefaultDesktopDevice() {
-        validateInitialization();
+        initSingleton();
         return defaultDesktopDevice;
     }
 
     public static AbstractGraphicsDevice getDefaultEGLDevice() {
-        validateInitialization();
+        initSingleton();
         return defaultEGLDevice;
-    }
-
-    private static void validateInitialization() {
-        if(!initialized) {
-            synchronized(GLProfile.class) {
-                if(!initialized) {
-                    initSingleton(false);
-                }
-            }
-        }
     }
 
     private static String array2String(String[] list) {
@@ -1447,17 +1539,26 @@ public class GLProfile {
         sb.append("]");
     }
 
-    private static boolean computeProfileMap(AbstractGraphicsDevice device, boolean desktopCtxUndef, boolean eglCtxUndef) {
+    private static boolean computeProfileMap(AbstractGraphicsDevice device, boolean desktopCtxUndef, boolean esCtxUndef) {
         if (DEBUG) {
-            System.err.println("GLProfile.init map "+device.getConnection()+", desktopCtxUndef "+desktopCtxUndef+", eglCtxUndef "+eglCtxUndef);
+            System.err.println("GLProfile.init map "+device.getConnection()+", desktopCtxUndef "+desktopCtxUndef+", esCtxUndef "+esCtxUndef);
         }
         GLProfile defaultGLProfile = null;
         HashMap<String, GLProfile> _mappedProfiles = new HashMap<String, GLProfile>(GL_PROFILE_LIST_ALL.length + 1 /* default */);
         for(int i=0; i<GL_PROFILE_LIST_ALL.length; i++) {
             String profile = GL_PROFILE_LIST_ALL[i];
-            String profileImpl = computeProfileImpl(device, profile, desktopCtxUndef, eglCtxUndef);
+            String profileImpl = computeProfileImpl(device, profile, desktopCtxUndef, esCtxUndef);
             if(null!=profileImpl) {
-                GLProfile glProfile = new GLProfile(profile, profileImpl);
+                final GLProfile glProfile;
+                if(profile.equals(profileImpl)) {
+                    glProfile = new GLProfile(profile, null);
+                } else {
+                    final GLProfile _mglp = _mappedProfiles.get(profileImpl);
+                    if(null == _mglp) {
+                        throw new InternalError("XXX0");
+                    }
+                    glProfile = new GLProfile(profile, _mglp);
+                }
                 _mappedProfiles.put(profile, glProfile);
                 if (DEBUG) {
                     System.err.println("GLProfile.init map "+glProfile+" on devide "+device.getConnection());
@@ -1484,7 +1585,11 @@ public class GLProfile {
     /**
      * Returns the profile implementation
      */
-    private static String computeProfileImpl(AbstractGraphicsDevice device, String profile, boolean desktopCtxUndef, boolean eglCtxUndef) {
+    private static String computeProfileImpl(AbstractGraphicsDevice device, String profile, boolean desktopCtxUndef, boolean esCtxUndef) {
+        // OSX GL3.. doesn't support GLSL<150, 
+        // hence GL2ES2 and GL2GL3 need to be mapped on GL2 on OSX for GLSL compatibility.
+        final boolean isOSX = Platform.OS_TYPE == Platform.OSType.MACOS;
+        
         if (GL2ES1.equals(profile)) {
             if(hasGL234Impl) {
                 if(GLContext.isGL4bcAvailable(device)) {
@@ -1495,35 +1600,35 @@ public class GLProfile {
                     return GL2;
                 }
             }
-            if(hasGLES1Impl && ( eglCtxUndef || GLContext.isGLES1Available(device))) {
+            if(hasGLES1Impl && ( esCtxUndef || GLContext.isGLES1Available(device))) {
                 return GLES1;
             }
         } else if (GL2ES2.equals(profile)) {
             if(hasGL234Impl) {
-                if(GLContext.isGL4bcAvailable(device)) {
+                if(!isOSX && GLContext.isGL4bcAvailable(device)) {
                     return GL4bc;
-                } else if(GLContext.isGL4Available(device)) {
+                } else if(!isOSX && GLContext.isGL4Available(device)) {
                     return GL4;
-                } else if(GLContext.isGL3bcAvailable(device)) {
+                } else if(!isOSX && GLContext.isGL3bcAvailable(device)) {
                     return GL3bc;
-                } else if(GLContext.isGL3Available(device)) {
+                } else if(!isOSX && GLContext.isGL3Available(device)) {
                     return GL3;
                 } else if(desktopCtxUndef || GLContext.isGL2Available(device)) {
                     return GL2;
                 }
             }
-            if(hasGLES2Impl && ( eglCtxUndef || GLContext.isGLES2Available(device))) {
+            if(hasGLES2Impl && ( esCtxUndef || GLContext.isGLES2Available(device))) {
                 return GLES2;
             }
         } else if(GL2GL3.equals(profile)) {
             if(hasGL234Impl) {
-                if(GLContext.isGL4bcAvailable(device)) {
+                if(!isOSX && GLContext.isGL4bcAvailable(device)) {
                     return GL4bc;
-                } else if(GLContext.isGL4Available(device)) {
+                } else if(!isOSX && GLContext.isGL4Available(device)) {
                     return GL4;
-                } else if(GLContext.isGL3bcAvailable(device)) {
+                } else if(!isOSX && GLContext.isGL3bcAvailable(device)) {
                     return GL3bc;
-                } else if(GLContext.isGL3Available(device)) {
+                } else if(!isOSX && GLContext.isGL3Available(device)) {
                     return GL3;
                 } else if(desktopCtxUndef || GLContext.isGL2Available(device)) {
                     return GL2;
@@ -1539,9 +1644,9 @@ public class GLProfile {
             return GL3;
         } else if(GL2.equals(profile) && hasGL234Impl && ( desktopCtxUndef || GLContext.isGL2Available(device))) {
             return GL2;
-        } else if(GLES2.equals(profile) && hasGLES2Impl && ( eglCtxUndef || GLContext.isGLES2Available(device))) {
+        } else if(GLES2.equals(profile) && hasGLES2Impl && ( esCtxUndef || GLContext.isGLES2Available(device))) {
             return GLES2;
-        } else if(GLES1.equals(profile) && hasGLES1Impl && ( eglCtxUndef || GLContext.isGLES1Available(device))) {
+        } else if(GLES1.equals(profile) && hasGLES1Impl && ( esCtxUndef || GLContext.isGLES1Available(device))) {
             return GLES1;
         }
         return null;
@@ -1563,7 +1668,8 @@ public class GLProfile {
         }
     }
 
-    private static /*final*/ HashMap/*<device_connection, HashMap<GL-String, GLProfile>*/ deviceConn2ProfileMap = new HashMap();
+    private static /*final*/ HashMap<String /*device_connection*/, HashMap<String /*GLProfile_name*/, GLProfile>> deviceConn2ProfileMap = 
+                new HashMap<String /*device_connection*/, HashMap<String /*GLProfile_name*/, GLProfile>>();
 
     /**
      * This implementation support lazy initialization, while avoiding recursion/deadlocks.<br>
@@ -1572,36 +1678,48 @@ public class GLProfile {
      *  - initialization<br<
      *
      * @param device the key 'device -> GLProfiles-Map'
-     * @return the GLProfile HashMap
+     * @param throwExceptionOnZeroProfile true if <code>GLException</code> shall be thrown in case of no mapped profile, otherwise false.
+     * @return the GLProfile HashMap if exists, otherwise null 
+     * @throws GLException if no profile for the given device is available.
      */
-    private static HashMap getProfileMap(AbstractGraphicsDevice device) {
-        validateInitialization();
+    private static HashMap<String /*GLProfile_name*/, GLProfile> getProfileMap(AbstractGraphicsDevice device, boolean throwExceptionOnZeroProfile) 
+        throws GLException 
+    {
+        initSingleton();
+
         if(null==device) {
             device = defaultDevice;
         }
         String deviceKey = device.getUniqueID();
-        HashMap map = (HashMap) deviceConn2ProfileMap.get(deviceKey);
-        if(null==map) {
-            initProfilesForDevice(device);
-            if( null == deviceConn2ProfileMap.get(deviceKey) ) {
-                throw new InternalError("initProfilesForDevice(..) didn't issue setProfileMap(..) on "+device);
+        HashMap<String /*GLProfile_name*/, GLProfile> map = deviceConn2ProfileMap.get(deviceKey);
+        if( null != map ) {
+            return map;
+        }
+        if( !initProfilesForDevice(device) ) {
+            if( throwExceptionOnZeroProfile ) {
+                throw new GLException("No Profile available for "+device);
+            } else {
+                return null;
             }
+        }
+        map = deviceConn2ProfileMap.get(deviceKey);
+        if( null == map && throwExceptionOnZeroProfile ) {
+            throw new InternalError("initProfilesForDevice(..) didn't setProfileMap(..) for "+device);
         }
         return map;
     }
 
-    private static void setProfileMap(AbstractGraphicsDevice device, HashMap/*<GL-String, GLProfile>*/mappedProfiles) {
-        validateInitialization();
+    private static void setProfileMap(AbstractGraphicsDevice device, HashMap<String /*GLProfile_name*/, GLProfile> mappedProfiles) {
         synchronized ( deviceConn2ProfileMap ) {
             deviceConn2ProfileMap.put(device.getUniqueID(), mappedProfiles);
         }
     }
 
-    private GLProfile(String profile, String profileImpl) {
+    private GLProfile(String profile, GLProfile profileImpl) {
         this.profile = profile;
         this.profileImpl = profileImpl;
     }
 
-    private String profileImpl = null;
+    private GLProfile profileImpl = null;
     private String profile = null;
 }

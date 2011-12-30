@@ -5,9 +5,10 @@ if [ -e /opt-share/etc/profile.ant ] ; then
 fi
 
 
-#    -Dc.compiler.debug=true 
+#    -Dc.compiler.debug=true \
+#    -Djavacdebug="true" \
+#    -Djavacdebuglevel="source,lines,vars" \
 
 ant \
-    -Djogl.cg=1 \
     -Drootrel.build=build-macosx \
     $* 2>&1 | tee make.jogl.all.macosx.log

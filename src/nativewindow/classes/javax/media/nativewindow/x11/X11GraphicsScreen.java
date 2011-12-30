@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2008 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright (c) 2010 JogAmp Community. All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -33,6 +34,8 @@
 package javax.media.nativewindow.x11;
 
 import javax.media.nativewindow.*;
+
+import jogamp.nativewindow.x11.X11Lib;
 import jogamp.nativewindow.x11.X11Util;
 
 /** Encapsulates a screen index on X11
@@ -48,22 +51,22 @@ public class X11GraphicsScreen extends DefaultGraphicsScreen implements Cloneabl
         super(device, fetchScreen(device, screen));
     }
 
-    public static AbstractGraphicsScreen createScreenDevice(long display, int screenIdx) {
+    public static AbstractGraphicsScreen createScreenDevice(long display, int screenIdx, boolean owner) {
         if(0==display) throw new NativeWindowException("display is null");
-        return new X11GraphicsScreen(new X11GraphicsDevice(display, AbstractGraphicsDevice.DEFAULT_UNIT), screenIdx);
+        return new X11GraphicsScreen(new X11GraphicsDevice(display, AbstractGraphicsDevice.DEFAULT_UNIT, owner), screenIdx);
     }
 
     public long getDefaultVisualID() {
         // It still could be an AWT hold handle ..
         long display = getDevice().getHandle();
-        int scrnIdx = X11Util.DefaultScreen(display);
-        return X11Util.DefaultVisualID(display, scrnIdx);
+        int scrnIdx = X11Lib.DefaultScreen(display);
+        return X11Lib.DefaultVisualID(display, scrnIdx);
     }
 
     private static int fetchScreen(X11GraphicsDevice device, int screen) {
         // It still could be an AWT hold handle ..
         long display = device.getHandle();
-        if(X11Util.XineramaEnabled(display)) {
+        if(X11Lib.XineramaEnabled(display)) {
             screen = 0; // Xinerama -> 1 screen
         }
         return screen;

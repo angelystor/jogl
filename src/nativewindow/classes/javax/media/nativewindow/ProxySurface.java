@@ -28,11 +28,15 @@
 
 package javax.media.nativewindow;
 
+import jogamp.nativewindow.SurfaceUpdatedHelper;
+
+import com.jogamp.common.util.locks.LockFactory;
 import com.jogamp.common.util.locks.RecursiveLock;
 
 public abstract class ProxySurface implements NativeSurface {
-    protected RecursiveLock surfaceLock = new RecursiveLock();
-    protected AbstractGraphicsConfiguration config;
+    private SurfaceUpdatedHelper surfaceUpdatedHelper = new SurfaceUpdatedHelper();
+    private AbstractGraphicsConfiguration config; // control access due to delegation
+    protected RecursiveLock surfaceLock = LockFactory.createRecursiveLock();
     protected long displayHandle;
     protected int height;
     protected int scrnIndex;
@@ -41,7 +45,7 @@ public abstract class ProxySurface implements NativeSurface {
     public ProxySurface(AbstractGraphicsConfiguration cfg) {
         invalidate();
         config = cfg;
-        displayHandle=cfg.getScreen().getDevice().getHandle();
+        displayHandle=cfg.getNativeGraphicsConfiguration().getScreen().getDevice().getHandle();
     }
 
     void invalidate() {
@@ -54,12 +58,16 @@ public abstract class ProxySurface implements NativeSurface {
         return displayHandle;
     }
 
-    public final AbstractGraphicsConfiguration getGraphicsConfiguration() {
+    protected final AbstractGraphicsConfiguration getPrivateGraphicsConfiguration() {
         return config;
+    }
+    
+    public final AbstractGraphicsConfiguration getGraphicsConfiguration() {
+        return config.getNativeGraphicsConfiguration();
     }
 
     public final int getScreenIndex() {
-        return config.getScreen().getIndex();
+        return getGraphicsConfiguration().getScreen().getIndex();
     }
 
     public abstract long getSurfaceHandle();
@@ -72,7 +80,7 @@ public abstract class ProxySurface implements NativeSurface {
         return height;
     }
 
-    public void setSize(int width, int height) {
+    public void surfaceSizeChanged(int width, int height) {
         this.width = width;
         this.height = height;
     }
@@ -81,16 +89,29 @@ public abstract class ProxySurface implements NativeSurface {
         return false;
     }
 
-    public void surfaceUpdated(Object updater, NativeSurface ns, long when) {
+    public void addSurfaceUpdatedListener(SurfaceUpdatedListener l) {
+        surfaceUpdatedHelper.addSurfaceUpdatedListener(l);
     }
 
+    public void addSurfaceUpdatedListener(int index, SurfaceUpdatedListener l) throws IndexOutOfBoundsException {
+        surfaceUpdatedHelper.addSurfaceUpdatedListener(index, l);
+    }
+
+    public void removeSurfaceUpdatedListener(SurfaceUpdatedListener l) {
+        surfaceUpdatedHelper.removeSurfaceUpdatedListener(l);
+    }
+
+    public void surfaceUpdated(Object updater, NativeSurface ns, long when) {
+        surfaceUpdatedHelper.surfaceUpdated(updater, ns, when);
+    }    
+    
     public int lockSurface() throws NativeWindowException {
         surfaceLock.lock();
-        int res = surfaceLock.getRecursionCount() == 0 ? LOCK_SURFACE_NOT_READY : LOCK_SUCCESS;
+        int res = surfaceLock.getHoldCount() == 1 ? LOCK_SURFACE_NOT_READY : LOCK_SUCCESS; // new lock ?
 
         if ( LOCK_SURFACE_NOT_READY == res ) {
             try {
-                final AbstractGraphicsDevice adevice = config.getScreen().getDevice();
+                final AbstractGraphicsDevice adevice = getGraphicsConfiguration().getScreen().getDevice();
                 adevice.lock();
                 try {
                     res = lockSurfaceImpl();
@@ -111,8 +132,8 @@ public abstract class ProxySurface implements NativeSurface {
     public final void unlockSurface() {
         surfaceLock.validateLocked();
 
-        if (surfaceLock.getRecursionCount() == 0) {
-            final AbstractGraphicsDevice adevice = config.getScreen().getDevice();
+        if (surfaceLock.getHoldCount() == 1) {
+            final AbstractGraphicsDevice adevice = getGraphicsConfiguration().getScreen().getDevice();
             try {
                 unlockSurfaceImpl();
             } finally {
@@ -142,9 +163,5 @@ public abstract class ProxySurface implements NativeSurface {
         return surfaceLock.getOwner();
     }
 
-    public final int getSurfaceRecursionCount() {
-        return surfaceLock.getRecursionCount();
-    }
-
-    public abstract String toString();
+    public abstract String toString();    
 }

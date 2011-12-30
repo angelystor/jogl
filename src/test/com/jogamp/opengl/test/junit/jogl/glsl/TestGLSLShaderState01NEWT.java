@@ -32,7 +32,7 @@ import com.jogamp.opengl.util.PMVMatrix;
 import com.jogamp.opengl.util.glsl.ShaderCode;
 import com.jogamp.opengl.util.glsl.ShaderProgram;
 import com.jogamp.opengl.util.glsl.ShaderState;
-import com.jogamp.opengl.test.junit.jogl.demos.es2.RedSquare0;
+import com.jogamp.opengl.test.junit.jogl.demos.es2.RedSquareES2;
 import com.jogamp.opengl.test.junit.util.MiscUtils;
 import com.jogamp.opengl.test.junit.util.NEWTGLContext;
 import com.jogamp.opengl.test.junit.util.UITestCase;
@@ -46,6 +46,7 @@ import javax.media.opengl.GLUniformData;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.BeforeClass;
 
 /**
  * Testing different vertex attribute (VA) data sets on one shader
@@ -53,6 +54,7 @@ import org.junit.Test;
  */
 public class TestGLSLShaderState01NEWT extends UITestCase {
     static long durationPerTest = 10; // ms
+    static boolean firstUIActionOnProcess = false;
 
     static final int vertices0_loc = 0; // FIXME: AMD needs this to be location 0 ? hu ?
     static final int colors0_loc = 1;
@@ -60,7 +62,7 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
     @Test
     public void testShaderState01Validation() throws InterruptedException {
         // preset ..
-        final NEWTGLContext.WindowContext winctx = NEWTGLContext.createWindow(GLProfile.getGL2ES2(), 480, 480, true);
+        final NEWTGLContext.WindowContext winctx = NEWTGLContext.createOnscreenWindow(GLProfile.getGL2ES2(), 480, 480, true);
         final GLDrawable drawable = winctx.context.getGLDrawable();
         final GL2ES2 gl = winctx.context.getGL().getGL2ES2();
         System.err.println(winctx.context);
@@ -70,9 +72,9 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         // test code ..        
         final ShaderState st = new ShaderState();
         
-        final ShaderCode rsVp = ShaderCode.create(gl, GL2ES2.GL_VERTEX_SHADER, 1, RedSquare0.class,
+        final ShaderCode rsVp = ShaderCode.create(gl, GL2ES2.GL_VERTEX_SHADER, 1, RedSquareES2.class,
                 "shader", "shader/bin", "RedSquareShader");
-        final ShaderCode rsFp = ShaderCode.create(gl, GL2ES2.GL_FRAGMENT_SHADER, 1, RedSquare0.class,
+        final ShaderCode rsFp = ShaderCode.create(gl, GL2ES2.GL_FRAGMENT_SHADER, 1, RedSquareES2.class,
                 "shader", "shader/bin", "RedSquareShader");
 
         final ShaderProgram sp = new ShaderProgram();
@@ -88,15 +90,19 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         
         st.attachShaderProgram(gl, sp);
         
+        Assert.assertEquals(null, ShaderState.getShaderState(gl));
+        st.setShaderState(gl); // pre-use attach
+        Assert.assertEquals(st, ShaderState.getShaderState(gl));
+        
         // Allocate Vertex Array0
-        final GLArrayDataServer vertices0 = GLSLMiscHelper.createRSVertices0(gl, st, vertices0_loc);
+        final GLArrayDataServer vertices0 = GLSLMiscHelper.createRSVertices0(gl, vertices0_loc);
         System.err.println("vertices0: " + vertices0);        
         vertices0.enableBuffer(gl, false);
         Assert.assertEquals(vertices0_loc, vertices0.getLocation());
         st.ownAttribute(vertices0, true);
         
         // Allocate Color Array0
-        final GLArrayDataServer colors0 = GLSLMiscHelper.createRSColors0(gl, st, colors0_loc);
+        final GLArrayDataServer colors0 = GLSLMiscHelper.createRSColors0(gl, colors0_loc);
         System.err.println("colors0: " + colors0);
         colors0.enableBuffer(gl, false);
         Assert.assertEquals(colors0_loc, colors0.getLocation());
@@ -107,16 +113,14 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         Assert.assertEquals(GL.GL_NO_ERROR, gl.glGetError());
         
         Assert.assertEquals(vertices0_loc, vertices0.getLocation());
-        GLSLMiscHelper.validateGLArrayDataServerState(gl, st, vertices0);
+        GLSLMiscHelper.validateGLArrayDataServerState(gl, vertices0);
         
         Assert.assertEquals(colors0_loc, colors0.getLocation());
-        GLSLMiscHelper.validateGLArrayDataServerState(gl, st, colors0);
+        GLSLMiscHelper.validateGLArrayDataServerState(gl, colors0);
         
-        Assert.assertEquals(null, ShaderState.getShaderState(gl));
         st.useProgram(gl, true);
         Assert.assertTrue(sp.inUse());
         Assert.assertEquals(GL.GL_NO_ERROR, gl.glGetError());
-        Assert.assertEquals(st, ShaderState.getShaderState(gl));        
         
         // setup mgl_PMVMatrix
         final PMVMatrix pmvMatrix = new PMVMatrix();
@@ -129,17 +133,17 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         Assert.assertEquals(pmvMatrixUniform, st.getUniform("mgl_PMVMatrix"));
         
         // Allocate Vertex Array1
-        final GLArrayDataServer vertices1 = GLSLMiscHelper.createRSVertices1(gl, st);
+        final GLArrayDataServer vertices1 = GLSLMiscHelper.createRSVertices1(gl);
         System.err.println("vertices1: " + vertices1);
         vertices1.enableBuffer(gl, false);
-        GLSLMiscHelper.validateGLArrayDataServerState(gl, st, vertices1);
+        GLSLMiscHelper.validateGLArrayDataServerState(gl, vertices1);
         st.ownAttribute(vertices1, true);
         
         // Allocate Color Array1
-        final GLArrayDataServer colors1 = GLSLMiscHelper.createRSColors1(gl, st);
+        final GLArrayDataServer colors1 = GLSLMiscHelper.createRSColors1(gl);
         System.err.println("colors1: " + colors1);
         colors1.enableBuffer(gl, false);
-        GLSLMiscHelper.validateGLArrayDataServerState(gl, st, colors1);
+        GLSLMiscHelper.validateGLArrayDataServerState(gl, colors1);
         st.ownAttribute(colors0, true);
         
         // misc GL setup
@@ -159,13 +163,13 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         Assert.assertEquals(GL.GL_NO_ERROR, gl.glGetError());
         
         // display #1 vertices0 / colors0 (post-disable)
-        GLSLMiscHelper.displayVCArrays(drawable, gl, st, true, vertices0, colors0, true, 1, durationPerTest);
+        GLSLMiscHelper.displayVCArrays(drawable, gl, true, vertices0, colors0, true, 1, durationPerTest);
 
         // display #2 #1 vertices1 / colors1 (post-disable)
-        GLSLMiscHelper.displayVCArrays(drawable, gl, st, true, vertices1, colors1, true, 2, durationPerTest);
+        GLSLMiscHelper.displayVCArrays(drawable, gl, true, vertices1, colors1, true, 2, durationPerTest);
         
         // display #3 vertices0 / colors0 (post-disable)
-        GLSLMiscHelper.displayVCArrays(drawable, gl, st, true, vertices0, colors0, true, 3, durationPerTest);
+        GLSLMiscHelper.displayVCArrays(drawable, gl, true, vertices0, colors0, true, 3, durationPerTest);
         
         // cleanup
         st.destroy(gl);
@@ -173,18 +177,18 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         NEWTGLContext.destroyWindow(winctx);
     }
 
-    @Test
+    @Test(timeout=240000)
     public void testShaderState00PerformanceSingleKeepEnabled() throws InterruptedException {
         testShaderState00PerformanceSingle(false);
     }
-    @Test
+    @Test(timeout=240000)
     public void testShaderState00PerformanceSingleToggleEnable() throws InterruptedException {
         testShaderState00PerformanceSingle(true);
     }
     
     void testShaderState00PerformanceSingle(boolean toggleEnable) throws InterruptedException {
         // preset ..
-        final NEWTGLContext.WindowContext winctx = NEWTGLContext.createWindow(GLProfile.getGL2ES2(), 480, 480, false);
+        final NEWTGLContext.WindowContext winctx = NEWTGLContext.createOnscreenWindow(GLProfile.getGL2ES2(), 480, 480, false);
         final GLDrawable drawable = winctx.context.getGLDrawable();
         final GL2ES2 gl = winctx.context.getGL().getGL2ES2();
         System.err.println(winctx.context);
@@ -195,9 +199,9 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         // test code ..        
         final ShaderState st = new ShaderState();
         
-        final ShaderCode rsVp = ShaderCode.create(gl, GL2ES2.GL_VERTEX_SHADER, 1, RedSquare0.class,
+        final ShaderCode rsVp = ShaderCode.create(gl, GL2ES2.GL_VERTEX_SHADER, 1, RedSquareES2.class,
                 "shader", "shader/bin", "RedSquareShader");
-        final ShaderCode rsFp = ShaderCode.create(gl, GL2ES2.GL_FRAGMENT_SHADER, 1, RedSquare0.class,
+        final ShaderCode rsFp = ShaderCode.create(gl, GL2ES2.GL_FRAGMENT_SHADER, 1, RedSquareES2.class,
                 "shader", "shader/bin", "RedSquareShader");
 
         final ShaderProgram sp = new ShaderProgram();
@@ -217,12 +221,12 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         st.uniform(gl, pmvMatrixUniform);
         
         // Allocate Vertex Array0
-        final GLArrayDataServer vertices0 = GLSLMiscHelper.createRSVertices0(gl, st, -1);
+        final GLArrayDataServer vertices0 = GLSLMiscHelper.createRSVertices0(gl, -1);
         st.ownAttribute(vertices0, true);
         vertices0.enableBuffer(gl, toggleEnable ? false : true);
         
         // Allocate Color Array0
-        final GLArrayDataServer colors0 = GLSLMiscHelper.createRSColors0(gl, st, -1);
+        final GLArrayDataServer colors0 = GLSLMiscHelper.createRSColors0(gl, -1);
         st.ownAttribute(colors0, true);
         colors0.enableBuffer(gl, toggleEnable ? false : true);
         
@@ -240,17 +244,20 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         st.uniform(gl, pmvMatrixUniform);
         gl.glViewport(0, 0, drawable.getWidth(), drawable.getHeight());        
 
+        gl.setSwapInterval(0);
+        
+        // validation ..
+        GLSLMiscHelper.displayVCArrays(drawable, gl, toggleEnable, vertices0, colors0, toggleEnable, 1, 0);
+        
+        // warmup ..
+        for(int frames=0; frames<GLSLMiscHelper.frames_warmup; frames++) {
+            GLSLMiscHelper.displayVCArraysNoChecks(drawable, gl, toggleEnable, vertices0, colors0, toggleEnable);
+        }
+        
+        // measure ..
         long t0 = System.currentTimeMillis();
         int frames;
         
-        // validation ..
-        GLSLMiscHelper.displayVCArrays(drawable, gl, st, toggleEnable, vertices0, colors0, toggleEnable, 1, 0);
-        
-        // warmup ..
-        for(frames=0; frames<GLSLMiscHelper.frames_warmup; frames++) {
-            GLSLMiscHelper.displayVCArraysNoChecks(drawable, gl, toggleEnable, vertices0, colors0, toggleEnable);
-        }        
-        // measure ..
         for(frames=0; frames<GLSLMiscHelper.frames_perftest; frames++) {
             GLSLMiscHelper.displayVCArraysNoChecks(drawable, gl, toggleEnable, vertices0, colors0, toggleEnable);
         }        
@@ -267,10 +274,10 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         NEWTGLContext.destroyWindow(winctx);        
     }
     
-    @Test
+    @Test(timeout=240000)
     public void testShaderState01PerformanceDouble() throws InterruptedException {
         // preset ..
-        final NEWTGLContext.WindowContext winctx = NEWTGLContext.createWindow(GLProfile.getGL2ES2(), 480, 480, false);
+        final NEWTGLContext.WindowContext winctx = NEWTGLContext.createOnscreenWindow(GLProfile.getGL2ES2(), 480, 480, false);
         final GLDrawable drawable = winctx.context.getGLDrawable();
         final GL2ES2 gl = winctx.context.getGL().getGL2ES2();
         System.err.println(winctx.context);
@@ -281,9 +288,9 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         // test code ..        
         final ShaderState st = new ShaderState();
         
-        final ShaderCode rsVp = ShaderCode.create(gl, GL2ES2.GL_VERTEX_SHADER, 1, RedSquare0.class,
+        final ShaderCode rsVp = ShaderCode.create(gl, GL2ES2.GL_VERTEX_SHADER, 1, RedSquareES2.class,
                 "shader", "shader/bin", "RedSquareShader");
-        final ShaderCode rsFp = ShaderCode.create(gl, GL2ES2.GL_FRAGMENT_SHADER, 1, RedSquare0.class,
+        final ShaderCode rsFp = ShaderCode.create(gl, GL2ES2.GL_FRAGMENT_SHADER, 1, RedSquareES2.class,
                 "shader", "shader/bin", "RedSquareShader");
 
         final ShaderProgram sp = new ShaderProgram();
@@ -303,22 +310,22 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         st.uniform(gl, pmvMatrixUniform);
         
         // Allocate Vertex Array0
-        final GLArrayDataServer vertices0 = GLSLMiscHelper.createRSVertices0(gl, st, -1);
+        final GLArrayDataServer vertices0 = GLSLMiscHelper.createRSVertices0(gl, -1);
         st.ownAttribute(vertices0, true);
         vertices0.enableBuffer(gl, false);
         
         // Allocate Vertex Array1
-        final GLArrayDataServer vertices1 = GLSLMiscHelper.createRSVertices1(gl, st);
+        final GLArrayDataServer vertices1 = GLSLMiscHelper.createRSVertices1(gl);
         st.ownAttribute(vertices1, true);
         vertices1.enableBuffer(gl, false);
         
         // Allocate Color Array0
-        final GLArrayDataServer colors0 = GLSLMiscHelper.createRSColors0(gl, st, -1);
+        final GLArrayDataServer colors0 = GLSLMiscHelper.createRSColors0(gl, -1);
         st.ownAttribute(colors0, true);
         colors0.enableBuffer(gl, false);
         
         // Allocate Color Array1
-        final GLArrayDataServer colors1 = GLSLMiscHelper.createRSColors1(gl, st);
+        final GLArrayDataServer colors1 = GLSLMiscHelper.createRSColors1(gl);
         st.ownAttribute(colors1, true);
         colors1.enableBuffer(gl, false);
         
@@ -336,18 +343,22 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         st.uniform(gl, pmvMatrixUniform);
         gl.glViewport(0, 0, drawable.getWidth(), drawable.getHeight());        
 
+        gl.setSwapInterval(0);
+                
         // validation ..
-        GLSLMiscHelper.displayVCArrays(drawable, gl, st, true, vertices0, colors0, true, 1, 0);
-        GLSLMiscHelper.displayVCArrays(drawable, gl, st, true, vertices1, colors1, true, 2, 0);
-        
-        long t0 = System.currentTimeMillis();
-        int frames;
+        GLSLMiscHelper.displayVCArrays(drawable, gl, true, vertices0, colors0, true, 1, 0);
+        GLSLMiscHelper.displayVCArrays(drawable, gl, true, vertices1, colors1, true, 2, 0);
+                
         // warmup ..
-        for(frames=0; frames<GLSLMiscHelper.frames_warmup; frames+=2) {
+        for(int frames=0; frames<GLSLMiscHelper.frames_warmup; frames+=2) {
             GLSLMiscHelper.displayVCArraysNoChecks(drawable, gl, true, vertices0, colors0, true);
             GLSLMiscHelper.displayVCArraysNoChecks(drawable, gl, true, vertices1, colors1, true);
-        }        
+        }
+        
         // measure ..
+        long t0 = System.currentTimeMillis();
+        int frames;
+        
         for(frames=0; frames<GLSLMiscHelper.frames_perftest; frames+=2) {
             GLSLMiscHelper.displayVCArraysNoChecks(drawable, gl, true, vertices0, colors0, true);
             GLSLMiscHelper.displayVCArraysNoChecks(drawable, gl, true, vertices1, colors1, true);
@@ -371,9 +382,10 @@ public class TestGLSLShaderState01NEWT extends UITestCase {
         for(int i=0; i<args.length; i++) {
             if(args[i].equals("-time")) {
                 durationPerTest = MiscUtils.atoi(args[++i], (int)durationPerTest);
-            }
-            if(args[i].equals("-wait")) {
+            } else if(args[i].equals("-wait")) {
                 wait = true;
+            } else if(args[i].equals("-firstUIAction")) {
+                firstUIActionOnProcess = true;
             }
         }
         if(wait) {

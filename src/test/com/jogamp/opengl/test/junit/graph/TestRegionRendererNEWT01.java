@@ -32,12 +32,6 @@ public class TestRegionRendererNEWT01 extends UITestCase {
         org.junit.runner.JUnitCore.main(tstname);
     }    
     
-    @BeforeClass
-    public static void initClass() {
-        GLProfile.initSingleton(true);
-        NativeWindowFactory.initSingleton(true);
-    }
-
     static void destroyWindow(GLWindow window) {
         if(null!=window) {
             window.destroy();
@@ -67,7 +61,7 @@ public class TestRegionRendererNEWT01 extends UITestCase {
 
         GLWindow window = createWindow("shape-vbaa1-msaa0", caps, 800,400);
         RenderState rs = RenderState.createRenderState(new ShaderState(), SVertex.factory());
-        GPURegionGLListener02  demo02Listener = new GPURegionGLListener02 (rs, Region.TWO_PASS_RENDERING_BIT, 1140, false, false); 
+        GPURegionGLListener02  demo02Listener = new GPURegionGLListener02 (rs, Region.VBAA_RENDERING_BIT, 1140, false, false); 
         demo02Listener.attachInputListenerTo(window);                
         window.addGLEventListener(demo02Listener);        
         

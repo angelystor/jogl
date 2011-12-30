@@ -158,6 +158,12 @@ public interface GLDrawable {
     */
   public GLProfile getGLProfile();
 
+  /**
+   * Returns the underlying native surface which surface handle 
+   * represents this OpenGL drawable's native resource.
+   * 
+   * @see #getHandle()
+   */
   public NativeSurface getNativeSurface();
 
   /** 

@@ -28,7 +28,6 @@
  
 package com.jogamp.opengl.test.junit.jogl.acore;
 
-import javax.media.opengl.FPSCounter;
 import javax.media.opengl.GLCapabilities;
 import javax.media.opengl.GLDrawableFactory;
 import javax.media.opengl.GLPbuffer;
@@ -37,13 +36,14 @@ import javax.media.opengl.awt.GLCanvas;
 import com.jogamp.opengl.util.Animator;
 
 import com.jogamp.opengl.test.junit.util.UITestCase;
-import com.jogamp.opengl.test.junit.jogl.demos.gl2.gears.Gears;
+import com.jogamp.opengl.test.junit.jogl.demos.gl2.Gears;
 import com.jogamp.opengl.test.junit.util.AWTRobotUtil;
 
 import java.awt.Frame;
-import javax.swing.SwingUtilities;
+import java.lang.reflect.InvocationTargetException;
 
 import org.junit.Assert;
+import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -56,13 +56,12 @@ public class TestSharedContextListAWT extends UITestCase {
 
     @BeforeClass
     public static void initClass() {
-        GLProfile.initSingleton(true);
         glp = GLProfile.getDefault();
         Assert.assertNotNull(glp);
         caps = new GLCapabilities(glp);
         Assert.assertNotNull(caps);
-        width  = 512;
-        height = 512;
+        width  = 256;
+        height = 256;
     }
 
     private void initShared() {
@@ -79,12 +78,18 @@ public class TestSharedContextListAWT extends UITestCase {
         Assert.assertNotNull(sharedDrawable);
         sharedDrawable.destroy();
     }
-    protected Frame createFrame(int x, int y, boolean useShared) {
-        return new Frame("Shared Gears AWT Test: "+x+"/"+y+" shared "+useShared);
+    
+    protected void setFrameTitle(final Frame f, final boolean useShared) 
+            throws InterruptedException, InvocationTargetException {
+        javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                f.setTitle("Shared Gears AWT Test: "+f.getX()+"/"+f.getY()+" shared "+useShared);
+            }
+        });
     }
 
-    protected GLCanvas runTestGL(final Frame frame, final Animator animator, final int x, final int y, final boolean useShared)
-            throws InterruptedException
+    protected GLCanvas runTestGL(final Frame frame, final Animator animator, final int x, final int y, final boolean useShared, final boolean vsync)
+            throws InterruptedException, InvocationTargetException
     {
         final GLCanvas glCanvas = new GLCanvas(caps, useShared ? sharedDrawable.getContext() : null);        
         Assert.assertNotNull(glCanvas);
@@ -92,7 +97,7 @@ public class TestSharedContextListAWT extends UITestCase {
         frame.setLocation(x, y);
         frame.setSize(width, height);
         
-        Gears gears = new Gears();
+        Gears gears = new Gears(vsync ? 1 : 0);
         if(useShared) {
             gears.setGears(sharedGears.getGear1(), sharedGears.getGear2(), sharedGears.getGear3());
         }
@@ -100,26 +105,41 @@ public class TestSharedContextListAWT extends UITestCase {
 
         animator.add(glCanvas);
 
-        frame.setVisible(true);
+        javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
+            public void run() {
+                frame.setVisible(true);
+            } } );
         Assert.assertEquals(true, AWTRobotUtil.waitForRealized(glCanvas, true));
 
         return glCanvas;
     }
 
     @Test
-    public void test01() throws InterruptedException {
+    public void test01() throws InterruptedException, InvocationTargetException {
         initShared();
-
-        Frame f1 = createFrame(0, 0, true);
-        Frame f2 = createFrame(width, 0, true);
-        Frame f3 = createFrame(0, height, false);
-
+        final Frame f1 = new Frame();
+        final Frame f2 = new Frame();
+        final Frame f3 = new Frame();
         Animator animator = new Animator();
 
-        GLCanvas glc1 = runTestGL(f1, animator, 0,     0,      true);
-        GLCanvas glc2 = runTestGL(f2, animator, width, 0,      true);
-        GLCanvas glc3 = runTestGL(f3, animator, 0,     height, false);
+        final GLCanvas glc1 = runTestGL(f1, animator, 0,     0,      true, false);
+        int x0 = f1.getX();
+        int y0 = f1.getY();
+        
+        final GLCanvas glc2 = runTestGL(f2, animator, 
+                                        x0+width,
+                                        y0+0,      
+                                        true, false);
+        
+        final GLCanvas glc3 = runTestGL(f3, animator, 
+                                        x0+0,     
+                                        y0+height, 
+                                        false, true);
 
+        setFrameTitle(f1, true);
+        setFrameTitle(f2, true);
+        setFrameTitle(f3, false);
+        
         animator.setUpdateFPSFrames(1, null);        
         animator.start();
         while(animator.isAnimating() && animator.getTotalFPSDuration()<duration) {
@@ -128,17 +148,27 @@ public class TestSharedContextListAWT extends UITestCase {
         animator.stop();
 
         // here we go again: On AMD/X11 the create/destroy sequence must be the same
-        // even though this is agains the chicken/egg logic here ..
+        // even though this is agains the chicken/egg logic
         releaseShared();
 
-        f1.dispose();
-        Assert.assertEquals(true, AWTRobotUtil.waitForRealized(glc1, false));
-
-        f2.dispose();
-        Assert.assertEquals(true, AWTRobotUtil.waitForRealized(glc2, false));
-
-        f3.dispose();
-        Assert.assertEquals(true, AWTRobotUtil.waitForRealized(glc3, false));
+        try {
+            javax.swing.SwingUtilities.invokeAndWait(new Runnable() {
+                public void run() {
+                    try {
+                        f1.dispose();
+                        Assert.assertEquals(true, AWTRobotUtil.waitForRealized(glc1, false));
+                        f2.dispose();
+                        Assert.assertEquals(true, AWTRobotUtil.waitForRealized(glc2, false));
+                        f3.dispose();
+                        Assert.assertEquals(true, AWTRobotUtil.waitForRealized(glc3, false));
+                    } catch (Throwable t) {
+                        throw new RuntimeException(t);
+                    }
+                }});
+        } catch( Throwable throwable ) {
+            throwable.printStackTrace();
+            Assume.assumeNoException( throwable );
+        }                
         
         // see above ..
         //releaseShared();

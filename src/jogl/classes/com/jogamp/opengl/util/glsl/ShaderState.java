@@ -49,7 +49,8 @@ import com.jogamp.opengl.util.GLArrayDataEditable;
 
 public class ShaderState {
     public static final boolean DEBUG = Debug.isPropertyDefined("jogl.debug.GLSLState", true, AccessController.getContext());
-
+    private static final String currentStateKey = "jogamp.opengl.glsl.ShaderState" ;
+    
     public ShaderState() {
     }
 
@@ -62,23 +63,39 @@ public class ShaderState {
      *
      * @see com.jogamp.opengl.util.glsl.ShaderState#useProgram(GL2ES2, boolean)
      * @see com.jogamp.opengl.util.glsl.ShaderState#getShaderState(GL)
+     * @see com.jogamp.opengl.util.glsl.ShaderState#setShaderState(GL)
      * @see com.jogamp.opengl.util.glsl.ShaderState#getCurrentShaderState()
      */
-    public static synchronized ShaderState getCurrentShaderState() { 
+    public static ShaderState getCurrentShaderState() { 
         return getShaderState(GLContext.getCurrentGL());
     }
 
     /**
-     * Fetches the shader state from the GL object's GLContext
+     * Gets the shader state attached to the GL object's GLContext
      *
      * @param gl the GL object referencing the GLContext
      * 
      * @see com.jogamp.opengl.util.glsl.ShaderState#useProgram(GL2ES2, boolean)
      * @see com.jogamp.opengl.util.glsl.ShaderState#getShaderState(GL)
+     * @see com.jogamp.opengl.util.glsl.ShaderState#setShaderState(GL)
      * @see com.jogamp.opengl.util.glsl.ShaderState#getCurrentShaderState()
      */
-    public static synchronized ShaderState getShaderState(GL gl) { 
-        return (ShaderState) gl.getContext().getAttachedObject(ShaderState.class.getName());
+    public static ShaderState getShaderState(GL gl) { 
+        return (ShaderState) gl.getContext().getAttachedObject(currentStateKey);
+    }
+
+    /**
+     * Attaches the shader state to the GL object's GLContext
+     *
+     * @param gl the GL object referencing the GLContext
+     * 
+     * @see com.jogamp.opengl.util.glsl.ShaderState#useProgram(GL2ES2, boolean)
+     * @see com.jogamp.opengl.util.glsl.ShaderState#getShaderState(GL)
+     * @see com.jogamp.opengl.util.glsl.ShaderState#setShaderState(GL)
+     * @see com.jogamp.opengl.util.glsl.ShaderState#getCurrentShaderState()
+     */
+    public final ShaderState setShaderState(GL gl) { 
+        return (ShaderState) gl.getContext().attachObject(currentStateKey, this);
     }
 
     /**
@@ -140,8 +157,7 @@ public class ShaderState {
     public synchronized void useProgram(GL2ES2 gl, boolean on) throws GLException {
         if(null==shaderProgram) { throw new GLException("No program is attached"); }        
         if(on) {
-            // update the current ShaderState to the TLS ..
-            gl.getContext().attachObject(ShaderState.class.getName(), this);
+            setShaderState(gl);
             if(shaderProgram.linked()) {
                 shaderProgram.useProgram(gl, true);
                 if(resetAllShaderData) {
@@ -303,7 +319,7 @@ public class ShaderState {
      * @see #getAttribLocation(GL2ES2, String)
      * @see GL2ES2#glGetAttribLocation(int, String)
      */
-    public int getAttribLocation(String name) {
+    public int getCachedAttribLocation(String name) {
         Integer idx = (Integer) activeAttribLocationMap.get(name);
         return (null!=idx)?idx.intValue():-1;
     }
@@ -346,7 +362,7 @@ public class ShaderState {
      */
     public void ownAttribute(GLArrayData attribute, boolean own) {
         if(own) {
-            final int location = getAttribLocation(attribute.getName());
+            final int location = getCachedAttribLocation(attribute.getName());
             if(0<=location) {
                 attribute.setLocation(location);
             }
@@ -363,7 +379,7 @@ public class ShaderState {
     /**
      * Binds a shader attribute to a location.
      * Multiple names can be bound to one location.
-     * The value will be cached and can be retrieved via {@link #getAttribLocation(String)}
+     * The value will be cached and can be retrieved via {@link #getCachedAttribLocation(String)}
      * before or after linking.
      *
      * @throws GLException if no program is attached
@@ -371,7 +387,7 @@ public class ShaderState {
      * 
      * @see javax.media.opengl.GL2ES2#glBindAttribLocation(int, int, String)
      * @see #getAttribLocation(GL2ES2, String)
-     * @see #getAttribLocation(String)
+     * @see #getCachedAttribLocation(String)
      */
     public void bindAttribLocation(GL2ES2 gl, int location, String name) {
         if(null==shaderProgram) throw new GLException("No program is attached");
@@ -384,7 +400,7 @@ public class ShaderState {
     /**
      * Binds a shader {@link GLArrayData} attribute to a location.
      * Multiple names can be bound to one location.
-     * The value will be cached and can be retrieved via {@link #getAttribLocation(String)}
+     * The value will be cached and can be retrieved via {@link #getCachedAttribLocation(String)}
      * and {@link #getAttribute(String)}before or after linking.
      * The {@link GLArrayData}'s location will be set as well.
      *
@@ -393,7 +409,7 @@ public class ShaderState {
      * 
      * @see javax.media.opengl.GL2ES2#glBindAttribLocation(int, int, String)
      * @see #getAttribLocation(GL2ES2, String)
-     * @see #getAttribLocation(String)
+     * @see #getCachedAttribLocation(String)
      * @see #getAttribute(String)
      */
     public void bindAttribLocation(GL2ES2 gl, int location, GLArrayData data) {
@@ -403,24 +419,24 @@ public class ShaderState {
     }
 
     /**
-     * Gets the location of a shader attribute,
-     * either the cached value {@link #getAttribLocation(String)} if valid or
-     * the retrieved one {@link GL2ES2#glGetAttribLocation(int, String)}.
-     * In the latter case the value will be cached.
+     * Gets the location of a shader attribute.<br>
+     * Uses either the cached value {@link #getCachedAttribLocation(String)} if valid,
+     * or the GLSL queried via {@link GL2ES2#glGetAttribLocation(int, String)}.<br>
+     * The location will be cached.
      *
      * @return -1 if there is no such attribute available, 
      *         otherwise >= 0
      * @throws GLException if no program is attached
      * @throws GLException if the program is not linked and no location was cached.
      *
-     * @see #getAttribLocation(String)
+     * @see #getCachedAttribLocation(String)
      * @see #bindAttribLocation(GL2ES2, int, GLArrayData)
      * @see #bindAttribLocation(GL2ES2, int, String)
      * @see GL2ES2#glGetAttribLocation(int, String)
      */
     public int getAttribLocation(GL2ES2 gl, String name) {
         if(null==shaderProgram) throw new GLException("No program is attached");
-        int location = getAttribLocation(name);
+        int location = getCachedAttribLocation(name);
         if(0>location) {
             if(!shaderProgram.linked()) throw new GLException("Program is not linked");
             location = gl.glGetAttribLocation(shaderProgram.program(), name);
@@ -439,11 +455,11 @@ public class ShaderState {
     }
 
     /**
-     * Gets the location of a shader attribute,
-     * either the cached value {@link #getAttribLocation(String)} if valid or
-     * the retrieved one {@link GL2ES2#glGetAttribLocation(int, String)}.
-     * In the latter case the value will be cached.
-     * The {@link GLArrayData}'s location will be set as well.
+     * Validates and returns the location of a shader attribute.<br>
+     * Uses either the cached value {@link #getCachedAttribLocation(String)} if valid, 
+     * or the GLSL queried via {@link GL2ES2#glGetAttribLocation(int, String)}.<br>
+     * The location will be cached and set in the  
+     * {@link GLArrayData} object.
      *
      * @return -1 if there is no such attribute available, 
      *         otherwise >= 0
@@ -451,7 +467,7 @@ public class ShaderState {
      * @throws GLException if no program is attached
      * @throws GLException if the program is not linked and no location was cached.
      *
-     * @see #getAttribLocation(String)
+     * @see #getCachedAttribLocation(String)
      * @see #bindAttribLocation(GL2ES2, int, GLArrayData)
      * @see #bindAttribLocation(GL2ES2, int, String)
      * @see GL2ES2#glGetAttribLocation(int, String)
@@ -646,11 +662,7 @@ public class ShaderState {
         int location = data.getLocation();
         if(0 > location) {
             location = getAttribLocation(gl, data);
-        } /* else { 
-            done via enable ..
-            // ensure data is the current bound one
-            activeAttribDataMap.put(data.getName(), data);             
-        } */
+        } 
         if(0 <= location) {
             // only pass the data, if the attribute exists in the current shader
             if(DEBUG) {
@@ -805,6 +817,17 @@ public class ShaderState {
     //
 
     /**
+     * Gets the cached location of the shader uniform.
+     *
+     * @return -1 if there is no such uniform available, 
+     *         otherwise >= 0
+     */
+    public final int getCachedUniformLocation(String name) {
+        Integer idx = (Integer) activeUniformLocationMap.get(name);
+        return (null!=idx)?idx.intValue():-1;
+    }
+
+    /**
      * Bind the {@link GLUniform} lifecycle to this ShaderState.
      *  
      * <p>If a uniform location is cached it is promoted to the {@link GLUniformData} instance.</p>
@@ -819,7 +842,7 @@ public class ShaderState {
      * @see #getUniform(String)
      */
     public void ownUniform(GLUniformData uniform) {
-        final int location = getUniformLocation(uniform.getName());
+        final int location = getCachedUniformLocation(uniform.getName());
         if(0<=location) {
             uniform.setLocation(location);
         }        
@@ -832,8 +855,13 @@ public class ShaderState {
     }
     
     /**
-     * Gets the index of a shader uniform.
-     * This must be done when the program is in use !
+     * Gets the location of a shader uniform.<br>
+     * Uses either the cached value {@link #getCachedUniformLocation(String)} if valid,
+     * or the GLSL queried via {@link GL2ES2#glGetUniformLocation(int, String)}.<br>
+     * The location will be cached.
+     * <p>
+     * The current shader program ({@link #attachShaderProgram(GL2ES2, ShaderProgram)}) 
+     * must be in use ({@link #useProgram(GL2ES2, boolean) }) !</p>
      *
      * @return -1 if there is no such attribute available,
      *         otherwise >= 0
@@ -845,9 +873,9 @@ public class ShaderState {
      * @see #getUniformLocation
      * @see ShaderProgram#glReplaceShader
      */
-    protected final int getUniformLocation(GL2ES2 gl, String name) {
+    public final int getUniformLocation(GL2ES2 gl, String name) {
         if(!shaderProgram.inUse()) throw new GLException("Program is not in use");
-        int location = getUniformLocation(name);
+        int location = getCachedUniformLocation(name);
         if(0>location) {
             location = gl.glGetUniformLocation(shaderProgram.program(), name);
             if(0<=location) {
@@ -861,11 +889,33 @@ public class ShaderState {
         return location;
     }
 
-    protected final int getUniformLocation(String name) {
-        Integer idx = (Integer) activeUniformLocationMap.get(name);
-        return (null!=idx)?idx.intValue():-1;
-    }
+    /**
+     * Validates and returns the location of a shader uniform.<br>
+     * Uses either the cached value {@link #getCachedUniformLocation(String)} if valid,
+     * or the GLSL queried via {@link GL2ES2#glGetUniformLocation(int, String)}.<br>
+     * The location will be cached and set in the  
+     * {@link GLUniformData} object.
+     * <p>
+     * The current shader program ({@link #attachShaderProgram(GL2ES2, ShaderProgram)}) 
+     * must be in use ({@link #useProgram(GL2ES2, boolean) }) !</p>
+     *
+     * @return -1 if there is no such attribute available,
+     *         otherwise >= 0
 
+     * @throws GLException is the program is not linked
+     *
+     * @see #glGetUniformLocation
+     * @see javax.media.opengl.GL2ES2#glGetUniformLocation
+     * @see #getUniformLocation
+     * @see ShaderProgram#glReplaceShader
+     */
+    public int getUniformLocation(GL2ES2 gl, GLUniformData data) {
+        int location = getUniformLocation(gl, data.getName());
+        data.setLocation(location);
+        activeUniformDataMap.put(data.getName(), data);        
+        return location;
+    }
+    
     /**
      * Set the uniform data.
      *
@@ -883,6 +933,7 @@ public class ShaderState {
      *
      * @see #glGetUniformLocation
      * @see javax.media.opengl.GL2ES2#glGetUniformLocation
+     * @see javax.media.opengl.GL2ES2#glUniform
      * @see #getUniformLocation
      * @see ShaderProgram#glReplaceShader
      */
@@ -890,10 +941,8 @@ public class ShaderState {
         if(!shaderProgram.inUse()) throw new GLException("Program is not in use");
         int location = data.getLocation();
         if(0>location) {
-            location = getUniformLocation(gl, data.getName());
-            data.setLocation(location);
+            location = getUniformLocation(gl, data);
         }
-        activeUniformDataMap.put(data.getName(), data);
         if(0<=location) {
             // only pass the data, if the uniform exists in the current shader
             if(DEBUG) {
@@ -988,7 +1037,7 @@ public class ShaderState {
         return toString(null).toString();
     }
     
-    private boolean verbose = false;
+    private boolean verbose = DEBUG ? true : false;
     private ShaderProgram shaderProgram=null;
     
     private HashSet<String> enabledAttributes = new HashSet<String>();

@@ -28,13 +28,14 @@
 package com.jogamp.opengl.test.junit.jogl.glsl;
 
 import com.jogamp.common.nio.Buffers;
+import com.jogamp.newt.ScreenMode;
 import com.jogamp.newt.util.MonitorMode;
 import com.jogamp.opengl.util.GLArrayDataServer;
 import com.jogamp.opengl.util.PMVMatrix;
 import com.jogamp.opengl.util.glsl.ShaderCode;
 import com.jogamp.opengl.util.glsl.ShaderProgram;
 import com.jogamp.opengl.util.glsl.ShaderState;
-import com.jogamp.opengl.test.junit.jogl.demos.es2.RedSquare0;
+import com.jogamp.opengl.test.junit.jogl.demos.es2.RedSquareES2;
 import com.jogamp.opengl.test.junit.util.MiscUtils;
 import com.jogamp.opengl.test.junit.util.NEWTGLContext;
 import com.jogamp.opengl.test.junit.util.UITestCase;
@@ -42,7 +43,7 @@ import com.jogamp.opengl.test.junit.util.UITestCase;
 import java.io.IOException;
 import java.nio.FloatBuffer;
 
-import javax.media.nativewindow.util.DimensionReadOnly;
+import javax.media.nativewindow.util.DimensionImmutable;
 import javax.media.opengl.GL;
 import javax.media.opengl.GL2ES2;
 import javax.media.opengl.GLDrawable;
@@ -51,14 +52,18 @@ import javax.media.opengl.GLUniformData;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.BeforeClass;
 
 public class TestRulerNEWT01 extends UITestCase {
     static long durationPerTest = 10; // ms
 
     @Test
     public void test01() throws InterruptedException {
+        long t0 = System.nanoTime();
+        GLProfile.initSingleton();
+        long t1 = System.nanoTime();
         // preset ..
-        final NEWTGLContext.WindowContext winctx = NEWTGLContext.createWindow(GLProfile.getGL2ES2(), 640, 480, true);
+        final NEWTGLContext.WindowContext winctx = NEWTGLContext.createOnscreenWindow(GLProfile.getGL2ES2(), 640, 480, true);
         final GLDrawable drawable = winctx.context.getGLDrawable();
         final GL2ES2 gl = winctx.context.getGL().getGL2ES2();
         System.err.println(winctx.context);
@@ -67,9 +72,9 @@ public class TestRulerNEWT01 extends UITestCase {
         // test code ..        
         final ShaderState st = new ShaderState();
         
-        final ShaderCode vp0 = ShaderCode.create(gl, GL2ES2.GL_VERTEX_SHADER, 1, RedSquare0.class,
+        final ShaderCode vp0 = ShaderCode.create(gl, GL2ES2.GL_VERTEX_SHADER, 1, RedSquareES2.class,
                 "shader", "shader/bin", "default");
-        final ShaderCode fp0 = ShaderCode.create(gl, GL2ES2.GL_FRAGMENT_SHADER, 1, RedSquare0.class,
+        final ShaderCode fp0 = ShaderCode.create(gl, GL2ES2.GL_FRAGMENT_SHADER, 1, RedSquareES2.class,
                 "shader", "shader/bin", "ruler");
 
         final ShaderProgram sp0 = new ShaderProgram();
@@ -99,9 +104,15 @@ public class TestRulerNEWT01 extends UITestCase {
         st.uniform(gl, rulerColor);        
         Assert.assertEquals(GL.GL_NO_ERROR, gl.glGetError());
         
-        final MonitorMode mmode = winctx.window.getScreen().getCurrentScreenMode().getMonitorMode();
-        final DimensionReadOnly sdim = mmode.getScreenSizeMM();
-        final DimensionReadOnly spix = mmode.getSurfaceSize().getResolution();   
+        Assert.assertNotNull(winctx);
+        Assert.assertNotNull(winctx.window);
+        Assert.assertNotNull(winctx.window.getScreen());
+        ScreenMode sm = winctx.window.getScreen().getCurrentScreenMode();
+        Assert.assertNotNull(sm);
+        System.err.println(sm);
+        final MonitorMode mmode = sm.getMonitorMode();
+        final DimensionImmutable sdim = mmode.getScreenSizeMM();
+        final DimensionImmutable spix = mmode.getSurfaceSize().getResolution();   
         final GLUniformData rulerPixFreq = new GLUniformData("gcu_RulerPixFreq", 2, Buffers.newDirectFloatBuffer(2));
         final FloatBuffer rulerPixFreqV = (FloatBuffer) rulerPixFreq.getBuffer();
         rulerPixFreqV.put(0, (float)spix.getWidth() / (float)sdim.getWidth() * 10.0f);
@@ -113,7 +124,7 @@ public class TestRulerNEWT01 extends UITestCase {
         System.err.println("Screen siz "+spix);
         System.err.println("Screen pixel/cm "+rulerPixFreqV.get(0)+", "+rulerPixFreqV.get(1));
 
-        final GLArrayDataServer vertices0 = GLArrayDataServer.createGLSL(st, "gca_Vertices", 3, GL.GL_FLOAT, false, 4, GL.GL_STATIC_DRAW);
+        final GLArrayDataServer vertices0 = GLArrayDataServer.createGLSL("gca_Vertices", 3, GL.GL_FLOAT, false, 4, GL.GL_STATIC_DRAW);
         vertices0.putf(0); vertices0.putf(1);  vertices0.putf(0);
         vertices0.putf(1);  vertices0.putf(1);  vertices0.putf(0);
         vertices0.putf(0); vertices0.putf(0); vertices0.putf(0);
@@ -148,7 +159,15 @@ public class TestRulerNEWT01 extends UITestCase {
             Thread.sleep(durationPerTest/10);
         }
         
+        long t2 = System.nanoTime();
+        
         NEWTGLContext.destroyWindow(winctx);
+        
+        long t3 = System.nanoTime();
+        
+        System.err.println("t1-t0: "+ (t1-t0)/1e6 +"ms"); 
+        System.err.println("t3-t0: "+ (t3-t0)/1e6 +"ms"); 
+        System.err.println("t3-t2: "+ (t3-t2)/1e6 +"ms"); 
     }
     
     public static void main(String args[]) throws IOException {

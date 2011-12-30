@@ -27,13 +27,14 @@
  */
 package com.jogamp.opengl.test.junit.jogl.glsl;
 
+import com.jogamp.common.os.Platform;
 import com.jogamp.opengl.util.FBObject;
 import com.jogamp.opengl.util.GLArrayDataServer;
 import com.jogamp.opengl.util.PMVMatrix;
 import com.jogamp.opengl.util.glsl.ShaderCode;
 import com.jogamp.opengl.util.glsl.ShaderProgram;
 import com.jogamp.opengl.util.glsl.ShaderState;
-import com.jogamp.opengl.test.junit.jogl.demos.es2.RedSquare0;
+import com.jogamp.opengl.test.junit.jogl.demos.es2.RedSquareES2;
 import com.jogamp.opengl.test.junit.util.MiscUtils;
 import com.jogamp.opengl.test.junit.util.NEWTGLContext;
 import com.jogamp.opengl.test.junit.util.UITestCase;
@@ -44,11 +45,13 @@ import javax.media.opengl.GL;
 import javax.media.opengl.GL2ES2;
 import javax.media.opengl.GL2GL3;
 import javax.media.opengl.GLDrawable;
+import javax.media.opengl.GLPipelineFactory;
 import javax.media.opengl.GLProfile;
 import javax.media.opengl.GLUniformData;
 
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.BeforeClass;
 
 public class TestFBOMRTNEWT01 extends UITestCase {
     static long durationPerTest = 10; // ms
@@ -56,9 +59,11 @@ public class TestFBOMRTNEWT01 extends UITestCase {
     @Test
     public void test01() throws InterruptedException {
         // preset ..
-        final NEWTGLContext.WindowContext winctx = NEWTGLContext.createWindow(GLProfile.getGL2ES2(), 640, 480, true);
+        final NEWTGLContext.WindowContext winctx = NEWTGLContext.createOnscreenWindow(GLProfile.getGL2ES2(), 640, 480, true);        
         final GLDrawable drawable = winctx.context.getGLDrawable();
-        final GL _gl = winctx.context.getGL();
+        GL _gl = winctx.context.getGL();
+        Assert.assertTrue(_gl.isGL2GL3());
+        _gl = _gl.getContext().setGL( GLPipelineFactory.create("javax.media.opengl.Debug", null, _gl, null) );
         Assert.assertTrue(_gl.isGL2GL3());
         final GL2GL3 gl = _gl.getGL2GL3();
         System.err.println(winctx.context);
@@ -68,9 +73,9 @@ public class TestFBOMRTNEWT01 extends UITestCase {
         final ShaderState st = new ShaderState();
         // st.setVerbose(true);
         
-        final ShaderCode vp0 = ShaderCode.create(gl, GL2ES2.GL_VERTEX_SHADER, 1, RedSquare0.class,
+        final ShaderCode vp0 = ShaderCode.create(gl, GL2ES2.GL_VERTEX_SHADER, 1, RedSquareES2.class,
                 "shader", "shader/bin", "fbo-mrt-1");
-        final ShaderCode fp0 = ShaderCode.create(gl, GL2ES2.GL_FRAGMENT_SHADER, 1, RedSquare0.class,
+        final ShaderCode fp0 = ShaderCode.create(gl, GL2ES2.GL_FRAGMENT_SHADER, 1, RedSquareES2.class,
                 "shader", "shader/bin", "fbo-mrt-1");
         final ShaderProgram sp0 = new ShaderProgram();
         sp0.add(gl, vp0, System.err);
@@ -81,9 +86,9 @@ public class TestFBOMRTNEWT01 extends UITestCase {
         Assert.assertEquals(GL.GL_NO_ERROR, gl.glGetError());        
         st.attachShaderProgram(gl, sp0);
         
-        final ShaderCode vp1 = ShaderCode.create(gl, GL2ES2.GL_VERTEX_SHADER, 1, RedSquare0.class,
+        final ShaderCode vp1 = ShaderCode.create(gl, GL2ES2.GL_VERTEX_SHADER, 1, RedSquareES2.class,
                 "shader", "shader/bin", "fbo-mrt-2");
-        final ShaderCode fp1 = ShaderCode.create(gl, GL2ES2.GL_FRAGMENT_SHADER, 1, RedSquare0.class,
+        final ShaderCode fp1 = ShaderCode.create(gl, GL2ES2.GL_FRAGMENT_SHADER, 1, RedSquareES2.class,
                 "shader", "shader/bin", "fbo-mrt-2");
         final ShaderProgram sp1 = new ShaderProgram();
         sp1.add(gl, vp1, System.err);
@@ -102,7 +107,7 @@ public class TestFBOMRTNEWT01 extends UITestCase {
         st.uniform(gl, pmvMatrixUniform);
         Assert.assertEquals(GL.GL_NO_ERROR, gl.glGetError());
         
-        final GLArrayDataServer vertices0 = GLArrayDataServer.createGLSL(st, "gca_Vertices", 3, GL.GL_FLOAT, false, 4, GL.GL_STATIC_DRAW);
+        final GLArrayDataServer vertices0 = GLArrayDataServer.createGLSL("gca_Vertices", 3, GL.GL_FLOAT, false, 4, GL.GL_STATIC_DRAW);
         // st.bindAttribLocation(gl, 0, vertices0);
         vertices0.putf(0); vertices0.putf(1);  vertices0.putf(0);
         vertices0.putf(1);  vertices0.putf(1);  vertices0.putf(0);
@@ -113,7 +118,7 @@ public class TestFBOMRTNEWT01 extends UITestCase {
         vertices0.enableBuffer(gl, false);
         Assert.assertEquals(GL.GL_NO_ERROR, gl.glGetError());
         
-        final GLArrayDataServer colors0 = GLArrayDataServer.createGLSL(st, "gca_Colors", 4, GL.GL_FLOAT, false, 4, GL.GL_STATIC_DRAW);
+        final GLArrayDataServer colors0 = GLArrayDataServer.createGLSL("gca_Colors", 4, GL.GL_FLOAT, false, 4, GL.GL_STATIC_DRAW);
         // st.bindAttribLocation(gl, 1, colors0);
         colors0.putf(1); colors0.putf(0);  colors0.putf(1); colors0.putf(1);
         colors0.putf(0);  colors0.putf(0);  colors0.putf(1); colors0.putf(1);
@@ -131,7 +136,7 @@ public class TestFBOMRTNEWT01 extends UITestCase {
         st.ownUniform(texUnit1);       
         st.uniform(gl, texUnit1);
                 
-        final GLArrayDataServer texCoords0 = GLArrayDataServer.createGLSL(st, "gca_TexCoords", 2, GL.GL_FLOAT, false, 4, GL.GL_STATIC_DRAW);
+        final GLArrayDataServer texCoords0 = GLArrayDataServer.createGLSL("gca_TexCoords", 2, GL.GL_FLOAT, false, 4, GL.GL_STATIC_DRAW);
         // st.bindAttribLocation(gl, 2, texCoords0);
         texCoords0.putf(0f); texCoords0.putf(1f);
         texCoords0.putf(1f);  texCoords0.putf(1f);

@@ -57,15 +57,18 @@ public class WindowsBitmapWGLDrawable extends WindowsWGLDrawable {
   private long hbitmap;
 
   protected WindowsBitmapWGLDrawable(GLDrawableFactory factory, NativeSurface target) {
-    super(factory, target, true);
-    create();
+    super(factory, target, false);
   }
 
+  protected void destroyImpl() {
+      setRealized(false);
+  }
+  
   protected void setRealizedImpl() {
     if(realized) {
-        create();
+        createBitmap();
     } else {
-        destroyImpl();
+        destroyBitmap();
     }
   }
 
@@ -73,13 +76,13 @@ public class WindowsBitmapWGLDrawable extends WindowsWGLDrawable {
     return new WindowsBitmapWGLContext(this, shareWith);
   }
 
-  private void create() {
+  private void createBitmap() {
     int werr;
     NativeSurface ns = getNativeSurface();
     if(DEBUG) {
         System.err.println("WindowsBitmapWGLDrawable (1): "+ns);
     }
-    WindowsWGLGraphicsConfiguration config = (WindowsWGLGraphicsConfiguration)ns.getGraphicsConfiguration().getNativeGraphicsConfiguration();
+    WindowsWGLGraphicsConfiguration config = (WindowsWGLGraphicsConfiguration)ns.getGraphicsConfiguration();
     GLCapabilitiesImmutable capabilities = (GLCapabilitiesImmutable)config.getRequestedCapabilities();
     int width = getWidth();
     int height = getHeight();
@@ -93,7 +96,7 @@ public class WindowsBitmapWGLDrawable extends WindowsWGLDrawable {
                         capabilities.getGreenBits() +
                         capabilities.getBlueBits() +
                         capabilities.getAlphaBits());
-    header.setBiSize(header.size());
+    header.setBiSize(BITMAPINFOHEADER.size());
     header.setBiWidth(width);
     // NOTE: negating the height causes the DIB to be in top-down row
     // order rather than bottom-up; ends up being correct during pixel
@@ -118,7 +121,7 @@ public class WindowsBitmapWGLDrawable extends WindowsWGLDrawable {
         System.err.println("WindowsBitmapWGLDrawable: " + width+"x"+height +
                             ", bpp " + bitsPerPixel +
                             ", bytes " + byteNum +
-                            ", header sz " + header.size() +
+                            ", header sz " + BITMAPINFOHEADER.size() +
                             ", DIB ptr num " + pb.capacity()+
                             ", "+capabilities+
                             ", werr "+werr);
@@ -153,7 +156,7 @@ public class WindowsBitmapWGLDrawable extends WindowsWGLDrawable {
     config.updateGraphicsConfiguration(getFactory(), ns, null);
   }
   
-  protected void destroyImpl() {
+  protected void destroyBitmap() {
     NativeSurface ns = getNativeSurface();
     if (ns.getSurfaceHandle() != 0) {
       // Must destroy bitmap and device context
@@ -165,11 +168,4 @@ public class WindowsBitmapWGLDrawable extends WindowsWGLDrawable {
       ((SurfaceChangeable)ns).setSurfaceHandle(0);
     }
   }
-
-  protected void swapBuffersImpl() {
-    if(DEBUG) {
-        System.err.println("unhandled swapBuffersImpl() called for: "+this);
-    }
-  }
-
 }

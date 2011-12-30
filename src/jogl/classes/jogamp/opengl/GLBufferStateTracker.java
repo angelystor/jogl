@@ -76,8 +76,7 @@ import com.jogamp.common.util.IntIntHashMap;
  */
 
 public class GLBufferStateTracker {
-  protected static final boolean DEBUG = GLBufferSizeTracker.DEBUG;
-
+  protected static final boolean DEBUG = Debug.isPropertyDefined("jogl.debug.GLBufferStateTracker", true);
   // Maps binding targets to buffer objects. A null value indicates
   // that the binding is unknown. A zero value indicates that it is
   // known that no buffer is bound to the target, according to the 
@@ -89,26 +88,33 @@ public class GLBufferStateTracker {
 
   public GLBufferStateTracker() {
     bindingMap = new IntIntHashMap();
-    bindingMap.setKeyNotFoundValue(-1);
+    bindingMap.setKeyNotFoundValue(0xFFFFFFFF);
 
     // Start with known unbound targets for known keys
-    bindingMap.put(GL.GL_ARRAY_BUFFER,         0);
-    bindingMap.put(GL.GL_ELEMENT_ARRAY_BUFFER, 0);
-    bindingMap.put(GL2.GL_PIXEL_PACK_BUFFER,   0);
-    bindingMap.put(GL2.GL_PIXEL_UNPACK_BUFFER, 0);
+    setBoundBufferObject(GL.GL_ARRAY_BUFFER,         0);
+    setBoundBufferObject(GL.GL_ELEMENT_ARRAY_BUFFER, 0);
+    setBoundBufferObject(GL2.GL_PIXEL_PACK_BUFFER,   0);
+    setBoundBufferObject(GL2.GL_PIXEL_UNPACK_BUFFER, 0);
   }
 
-  public void setBoundBufferObject(int target, int buffer) {
-    bindingMap.put(target, buffer);
+  public final void setBoundBufferObject(int target, int value) {
+    bindingMap.put(target, value);
+    if (DEBUG) {
+      System.err.println();
+      System.err.println("GLBufferStateTracker.setBoundBufferObject() target 0x" + 
+                         Integer.toHexString(target) + " -> mapped bound buffer 0x" +
+                         Integer.toHexString(value));
+      // Thread.dumpStack();
+    }
   }
 
   /** Note: returns an unspecified value if the binding for the
       specified target (e.g. GL_ARRAY_BUFFER) is currently unknown.
       You must use isBoundBufferObjectKnown() to see whether the
       return value is valid. */
-  public int getBoundBufferObject(int target, GL caller) {
+  public final int getBoundBufferObject(int target, GL caller) {
     int value = bindingMap.get(target);
-    if (0 > value) {
+    if (0xFFFFFFFF == value) {
       // User probably either called glPushClientAttrib /
       // glPopClientAttrib or is querying an unknown target. See
       // whether we know how to fetch this state.
@@ -123,15 +129,23 @@ public class GLBufferStateTracker {
       }
       if (gotQueryTarget) {
         caller.glGetIntegerv(queryTarget, bufTmp, 0);
+        value = bufTmp[0];
         if (DEBUG) {
-          System.err.println("GLBufferStateTracker.getBoundBufferObject(): queried bound buffer " +
-                             bufTmp[0] +
-                             " for query target 0x" + Integer.toHexString(queryTarget));
+          System.err.println();
+          System.err.println("GLBufferStateTracker.getBoundBufferObject() [queried value]: target 0x" + 
+                             Integer.toHexString(target) + " / query 0x"+Integer.toHexString(queryTarget)+
+                             " -> mapped bound buffer 0x" + Integer.toHexString(value));
         }
-        setBoundBufferObject(target, bufTmp[0]);
-        return bufTmp[0];
+        setBoundBufferObject(target, value);
+        return value;
       }
       return 0;
+    }
+    if (DEBUG) {
+      System.err.println();
+      System.err.println("GLBufferStateTracker.getBoundBufferObject() [mapped value]: target 0x" + 
+                         Integer.toHexString(target) + " -> mapped bound buffer 0x" +
+                         Integer.toHexString(value));
     }
     return value;
   }
@@ -143,7 +157,12 @@ public class GLBufferStateTracker {
       from GLContext.makeCurrent() in the future to possibly increase
       the robustness of these caches in the face of external native
       code manipulating OpenGL state. */
-  public void clearBufferObjectState() {
+  public final void clearBufferObjectState() {
     bindingMap.clear();
+        if (DEBUG) {
+          System.err.println();
+          System.err.println("GLBufferStateTracker.clearBufferObjectState()");
+          //Thread.dumpStack();
+        }
   }
 }

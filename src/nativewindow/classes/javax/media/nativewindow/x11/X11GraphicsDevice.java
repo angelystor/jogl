@@ -1,5 +1,6 @@
 /*
  * Copyright (c) 2008 Sun Microsystems, Inc. All Rights Reserved.
+ * Copyright (c) 2010 JogAmp Community. All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
@@ -33,6 +34,7 @@
 package javax.media.nativewindow.x11;
 
 import jogamp.nativewindow.Debug;
+import jogamp.nativewindow.x11.X11Lib;
 import jogamp.nativewindow.x11.X11Util;
 import javax.media.nativewindow.DefaultGraphicsDevice;
 import javax.media.nativewindow.NativeWindowException;
@@ -44,49 +46,49 @@ import javax.media.nativewindow.ToolkitLock;
 
 public class X11GraphicsDevice extends DefaultGraphicsDevice implements Cloneable {
     public static final boolean DEBUG = Debug.debug("GraphicsDevice");
-    boolean closeDisplay = false;
+    final boolean closeDisplay;
 
     /** Constructs a new X11GraphicsDevice corresponding to the given connection and default
-     *  {@link javax.media.nativewindow.ToolkitLock} via {@link NativeWindowFactory#createDefaultToolkitLock(java.lang.String, long)}.<br>
+     *  {@link javax.media.nativewindow.ToolkitLock} via {@link NativeWindowFactory#getDefaultToolkitLock(String)}.<br>
      *  Note that this is not an open connection, ie no native display handle exist.
      *  This constructor exist to setup a default device connection.
+     *  @see DefaultGraphicsDevice#DefaultGraphicsDevice(String, String, int)
      */
     public X11GraphicsDevice(String connection, int unitID) {
         super(NativeWindowFactory.TYPE_X11, connection, unitID);
+        closeDisplay = false;
     }
 
     /** Constructs a new X11GraphicsDevice corresponding to the given native display handle and default
-     *  {@link javax.media.nativewindow.ToolkitLock} via {@link NativeWindowFactory#createDefaultToolkitLock(java.lang.String, long)}.
+     *  {@link javax.media.nativewindow.ToolkitLock} via {@link NativeWindowFactory#createDefaultToolkitLock(String, long)}.
+     *  @see DefaultGraphicsDevice#DefaultGraphicsDevice(String, String, int, long)
      */
-    public X11GraphicsDevice(long display, int unitID) {
+    public X11GraphicsDevice(long display, int unitID, boolean owner) {
         // FIXME: derive unitID from connection could be buggy, one DISPLAY for all screens for example..
-        super(NativeWindowFactory.TYPE_X11, X11Util.XDisplayString(display), unitID, display);
+        super(NativeWindowFactory.TYPE_X11, X11Lib.XDisplayString(display), unitID, display);
         if(0==display) {
             throw new NativeWindowException("null display");
         }
+        closeDisplay = owner;
     }
 
     /**
      * @param display the Display connection
      * @param locker custom {@link javax.media.nativewindow.ToolkitLock}, eg to force null locking in NEWT
+     * @see DefaultGraphicsDevice#DefaultGraphicsDevice(String, String, int, long, ToolkitLock)
      */
-    public X11GraphicsDevice(long display, int unitID, ToolkitLock locker) {
-        super(NativeWindowFactory.TYPE_X11, X11Util.XDisplayString(display), unitID, display, locker);
+    public X11GraphicsDevice(long display, int unitID, ToolkitLock locker, boolean owner) {
+        super(NativeWindowFactory.TYPE_X11, X11Lib.XDisplayString(display), unitID, display, locker);
         if(0==display) {
             throw new NativeWindowException("null display");
         }
+        closeDisplay = owner;
     }
 
     public Object clone() {
       return super.clone();
     }
 
-    public void setCloseDisplay(boolean close) {
-        closeDisplay = close;
-        if(DEBUG && close) {
-            System.err.println(Thread.currentThread().getName() + " - X11GraphicsDevice.setCloseDisplay(true): "+this);
-        }
-    }
     public boolean close() {
         // FIXME: shall we respect the unitID ?
         if(closeDisplay && 0 != handle) {
@@ -94,10 +96,8 @@ public class X11GraphicsDevice extends DefaultGraphicsDevice implements Cloneabl
                 System.err.println(Thread.currentThread().getName() + " - X11GraphicsDevice.close(): "+this);
             }
             X11Util.closeDisplay(handle);
-            handle = 0;
-            return true;
         }
-        return false;
+        return super.close();
     }
 }
 

@@ -33,8 +33,6 @@
         <condition property="jvmarg.headless" value="-Djava.awt.headless=true"><not><isset property="isOSX"/></not></condition>
 
         <property name="batchtest.timeout"    value="1800000"/> <!-- 30 min -->
-
-        <property name="java.part.test.shadercode" value="com/jogamp/opengl/test/junit/jogl/demos/es2/shader/*"/>
     </target>
     
     <!-- ================================================================== -->
@@ -58,23 +56,15 @@
       <mkdir dir="${obj.test}" />
       <mkdir dir="${classes}" />
 
-      <!-- Clean the results -->
-      <delete quiet="true">
-        <fileset dir="${results.test}" includes="**"/>
-        <fileset file="${build}/${test.archive.name}.7z"/>
-        <fileset dir="." includes="*.tga" />
-      </delete>
-      <mkdir dir="${results.test}" />
-
       <property name="jogl.test.jar.path" location="${jogl.test.jar}"/> <!-- absolute path -->
       <echo message="jogl.test.jar ${jogl.test.jar.path}"/>
       <uptodate property="test.compile.skip">
         <srcfiles dir= "."                 includes="*.xml"/>
         <srcfiles dir= "${src.test}"       includes="**"/>
-        <srcfiles                          file="${nativewindow.all.jar}" />
-        <srcfiles                          file="${jogl.all.jar}" />
-        <srcfiles                          file="${newt.all.jar}" />
         <srcfiles                          file="${gluegen.jar}" />
+        <srcfiles                          dir="${src}/nativewindow" />
+        <srcfiles                          dir="${src}/jogl" />
+        <srcfiles                          dir="${src}/newt" />
         <mapper type="merge" to="${jogl.test.jar.path}"/>
       </uptodate>
     </target>
@@ -87,24 +77,22 @@
                memoryMaximumSize="${javac.memorymax}"
                includeAntRuntime="false"
                debug="${javacdebug}" debuglevel="${javacdebuglevel}">
-            <classpath refid="junit_jogl_newt.compile.classpath"/>
+            <classpath refid="junit_jogl_newt_android.compile.classpath"/>
             <src path="${src.test}" />
         </javac>
+        <!-- include any resource files that tests may require -->
+        <copy todir="${classes}">
+            <fileset dir="${src.test}">
+                <exclude name="**/*.java"/>
+            </fileset>
+        </copy>
         <jar destfile="${jogl.test.jar}" filesonly="true">
             <!-- get all class files, but skip any resource files that external tools
                  might have copied into the class directory (otherwise, it's possible
                  to get the same resource file twice in the jar) -->
             <fileset dir="${classes}"
                 includes="${java.part.test}"/>
-            <!-- include any resource files that tests may requre -->
-            <fileset dir="${src.test}">
-                <exclude name="**/*.java"/>
-            </fileset>
-            <fileset dir="${src.test}" includes="${java.part.test.shadercode}"/>
         </jar>
-        <copy todir="${classes}">
-            <fileset dir="${src.test}" includes="${java.part.test.shadercode}"/>
-        </copy>
     </target>
 
     <target name="test.manual.run" depends="test.compile">
@@ -135,7 +123,8 @@
                  failonerror="false"
                  output="${test.class.result.file}">
                 <env key="${system.env.library.path}" path="${obj.all.paths}"/>
-                <env key="CLASSPATH" value="${junit_jogl_newt_awt.run.jars}"/>
+                <env key="CLASSPATH" value="${junit_jogl_awt.run.jars}"/>
+                <arg line="${jvmDataModel.arg}"/>
                 <arg value="-Djava.library.path=${obj.all.paths}"/>
                 <!--
                 <arg line="-Dnewt.debug.EDT"/>
@@ -155,6 +144,7 @@
         <!-- Test*NOUI* -->
         <junit forkmode="perTest" showoutput="true" fork="true" haltonerror="off" timeout="${batchtest.timeout}">
             <env key="${system.env.library.path}" path="${obj.all.paths}"/>
+            <jvmarg value="${jvmDataModel.arg}"/>
             <jvmarg value="-Djava.library.path=${obj.all.paths}"/>
 
             <!--
@@ -183,8 +173,7 @@
         </junit>
     </target>
 
-    <!-- NEWT is currently not supported on OSX -->
-    <target name="junit.run.newt.headless" depends="test.compile" unless="isOSX">
+    <target name="junit.run.newt.headless" depends="test.compile">
         <!-- Test*NEWT* 
 
              Emulation of junit task,
@@ -218,7 +207,8 @@
                  relative="true"
                  failonerror="false">
                 <env key="${system.env.library.path}" path="${obj.all.paths}"/>
-                <env key="CLASSPATH" value="${junit_jogl_newt.run.jars}"/>
+                <env key="CLASSPATH" value="${junit_jogl_noawt.run.jars}"/>
+                <arg line="${jvmDataModel.arg}"/>
                 <arg value="-Djava.library.path=${obj.all.paths}"/>
                 <arg line="${jvmarg.headless}"/>
                 <!--
@@ -248,12 +238,12 @@
     <!-- junit.run.newt is covered by junit.run.newt.headless, disable it for now, but may be checked manually.
          This test target would also overwrite the test result XML files, we would also need a solution here for hudson,
          if run in parallel.
-         NEWT is currently not supported on OSX 
       -->
-    <target name="junit.run.newt" depends="test.compile" unless="isOSX">
+    <target name="junit.run.newt" depends="test.compile">
         <!-- Test*NEWT* -->
         <junit forkmode="perTest" showoutput="true" fork="true" haltonerror="off" timeout="${batchtest.timeout}">
             <env key="${system.env.library.path}" path="${obj.all.paths}"/>
+            <jvmarg value="${jvmDataModel.arg}"/>
             <jvmarg value="-Djava.library.path=${obj.all.paths}"/>
 
             <!--
@@ -271,7 +261,7 @@
 
             <formatter usefile="false" type="plain"/>
             <formatter usefile="true" type="xml"/>
-            <classpath refid="junit_jogl_newt.run.classpath"/>
+            <classpath refid="junit_jogl_noawt.run.classpath"/>
 
             <batchtest todir="${results.test}">
               <fileset dir="${classes}">
@@ -288,6 +278,7 @@
         <!-- Test*AWT* -->
         <junit forkmode="perTest" showoutput="true" fork="true" haltonerror="off" timeout="${batchtest.timeout}">
             <env key="${system.env.library.path}" path="${obj.all.paths}"/>
+            <jvmarg value="${jvmDataModel.arg}"/>
             <jvmarg value="-Djava.library.path=${obj.all.paths}"/>
 
             <!--
@@ -322,6 +313,7 @@
         <!-- Test*AWT* -->
         <junit forkmode="perTest" showoutput="true" fork="true" haltonerror="off" timeout="${batchtest.timeout}">
             <env key="${system.env.library.path}" path="${obj.all.paths}"/>
+            <jvmarg value="${jvmDataModel.arg}"/>
             <jvmarg value="-Djava.library.path=${obj.all.paths}"/>
 
             <!--
@@ -337,17 +329,16 @@
 
             <formatter usefile="false" type="plain"/>
             <formatter usefile="true" type="xml"/>
-            <classpath refid="junit_jogl_newt_awt.run.classpath"/>
+            <classpath refid="junit_jogl_awt.run.classpath"/>
 
             <test name="${testclass}"/>
         </junit>
     </target>
 
-    <target name="junit.run.swt.headless" depends="test.compile" description="Runs all pure SWT tests.">
+    <target name="junit.run.swt.headless" depends="test.compile" description="Runs all pure SWT tests." if="isSWTRuntimeAvailable">
         <!-- Test*SWT* 
 
-             Emulation of junit task,
-             due to the fact that we have to place invoke our MainThread class first (-> MacOSX).
+             Emulation of junit task.
 
              Utilizing Ant-1.8.0 and ant-contrib-1.0b3 (loops, mutable properties).
           --> 
@@ -379,13 +370,14 @@
                  relative="true"
                  failonerror="false">
                 <env key="${system.env.library.path}" path="${obj.all.paths}"/>
-                <env key="CLASSPATH" value="${junit_jogl_swt.run.jars}"/>
+                <env key="CLASSPATH" value="${junit_extra_classpath}${junit_jogl_swt.run.jars}"/>
+                <arg line="${jvmDataModel.arg}"/>
                 <arg value="-Djava.library.path=${obj.all.paths}"/>
                 <arg line="${jvmarg.headless}"/>
                 <!--
                 <arg line="-Dnewt.debug.EDT"/>
                 -->
-                <arg line="com.jogamp.newt.util.MainThread"/>
+                <!-- arg line="com.jogamp.newt.util.MainThread"/-->
                 <arg line="org.apache.tools.ant.taskdefs.optional.junit.JUnitTestRunner"/>
                 <srcfile/>
                 <arg line="filtertrace=true"/>
@@ -406,12 +398,12 @@
         </for>
     </target>
 
-    <target name="junit.run.swt.awt" depends="test.compile" description="Runs all SWT_AWT tests.">
-      <!-- Test*SWT* -->
+    <target name="junit.run.swt.awt" depends="test.compile" description="Runs all SWT_AWT tests." if="isSWTRuntimeAvailable">
+      <!-- Test*SWT*AWT* -->
       <junit forkmode="perTest" showoutput="true" fork="true" haltonerror="off" timeout="${batchtest.timeout}">
           <env key="${system.env.library.path}" path="${obj.all.paths}"/>
+          <jvmarg value="${jvmDataModel.arg}"/>
           <jvmarg value="-Djava.library.path=${obj.all.paths}"/>
-          <jvmarg value="${jvmarg.mainthrd}"/>
 
           <!--
           <jvmarg value="-Djogl.debug=all"/>
@@ -426,7 +418,7 @@
 
           <formatter usefile="false" type="plain"/>
           <formatter usefile="true" type="xml"/>
-          <classpath refid="junit_jogl_swt.run.classpath"/>
+          <classpath path="${junit_extra_classpath}${junit_jogl_swt.run.jars}"/>
 
           <batchtest todir="${results.test}">
             <fileset dir="${classes}">
@@ -440,10 +432,10 @@
       </junit>
     </target>
 
-    <!-- NEWT is currently not supported on OSX -->
-    <target name="junit.run.newt.awt" depends="test.compile" unless="isOSX">
+    <target name="junit.run.newt.awt" depends="test.compile">
         <!-- Test*AWT* -->
         <junit forkmode="perTest" showoutput="true" fork="true" haltonerror="off" timeout="${batchtest.timeout}">
+            <jvmarg value="${jvmDataModel.arg}"/>
             <env key="${system.env.library.path}" path="${obj.all.paths}"/>
             <jvmarg value="-Djava.library.path=${obj.all.paths}"/>
 
@@ -462,7 +454,7 @@
 
             <formatter usefile="false" type="plain"/>
             <formatter usefile="true" type="xml"/>
-            <classpath refid="junit_jogl_newt_awt.run.classpath"/>
+            <classpath refid="junit_jogl_awt.run.classpath"/>
 
             <batchtest todir="${results.test}">
               <fileset dir="${classes}">
@@ -476,19 +468,57 @@
     </target>
 
     <target name="test.auto.run" depends="junit.run"/>
-    <target name="junit.run" depends="junit.run.noui,junit.run.newt.headless,junit.run.awt,junit.run.newt.awt,junit.run.swt.headless,junit.run.swt.awt">
+
+        <condition property="jvmarg.mainthrd" value="-XstartOnFirstThread"><isset property="isOSX"/></condition>
+
+    <target name="junit.run.tests" depends="junit.run.noui,junit.run.newt.headless,junit.run.awt,junit.run.newt.awt,junit.run.swt.headless,junit.run.swt.awt"/>
+
+    <target name="junit.run.d32" if="isOSX">
+        <var name="jvmDataModel.arg" unset="true"/>
+        <var name="jvmDataModel.arg" value="-d32"/>
+        <var name="junit_extra_classpath" unset="true"/>
+        <var name="junit_extra_classpath" value="${swt-cocoa-macosx-x86_32.jar}:"/>
+
+        <antcall target="junit.run.tests" inheritRefs="true" inheritAll="true"/>
+
+        <mkdir dir="${build}/test/results-x32"/>
+        <move todir="${build}/test/results-x32">
+            <fileset dir="." includes="*.tga" />
+        </move>
+        <move todir="${build}/test/results-x32">
+            <fileset dir="${results.test}" includes="**" />
+        </move>
+        <mkdir dir="${build}/test/results"/>
+
+        <var name="jvmDataModel.arg" unset="true"/>
+        <var name="jvmDataModel.arg" value="-d64"/>
+        <var name="junit_extra_classpath" unset="true"/>
+        <var name="junit_extra_classpath" value=""/>
+    </target>
+
+    <target name="junit.run.settings">
+        <delete quiet="true">
+            <fileset dir="${results.test}" includes="**"/>
+            <fileset dir="${build}/test/results-x32" includes="**"/>
+            <fileset file="${build}/${test.archive.name}.7z"/>
+            <fileset dir="." includes="*.tga" />
+        </delete>
+        <mkdir dir="${results.test}" />
+    </target>
+
+    <target name="junit.run" depends="declare.common, junit.run.settings, junit.run.d32, junit.run.tests">
+        <mkdir dir="${results.test}" />
+        <move todir="${results.test}">
+            <fileset dir="." includes="*.tga" />
+        </move>
         <antcall target="test-zip-archive" inheritRefs="true" inheritAll="true"/>
     </target>
 
     <!-- updates / create the test results zip file -->
     <target name="test-zip-archive" depends="declare.common">
-        <move todir="${results.test}">
-            <fileset dir="." includes="*.tga" />
-        </move>
-        <mkdir dir="${results.test}" />
         <archive.7z destfile="${build}/${test.archive.name}.7z"
-                    basedir="${results.test}" 
-                    includes="**" />
+                    basedir="${project.root}" 
+                    includes="${rootrel.build}/test/results ${rootrel.build}/test/results-x64 ${rootrel.build}/test/results-x32" />
     </target>
 
     <!-- ================================================================== -->

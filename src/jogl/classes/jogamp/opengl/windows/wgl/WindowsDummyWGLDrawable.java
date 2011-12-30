@@ -46,6 +46,8 @@ import javax.media.opengl.GLProfile;
 
 import javax.media.nativewindow.AbstractGraphicsScreen;
 import jogamp.nativewindow.windows.GDI;
+import jogamp.nativewindow.windows.GDIUtil;
+
 import javax.media.nativewindow.NativeSurface;
 import javax.media.opengl.GLCapabilities;
 import javax.media.opengl.GLException;
@@ -63,7 +65,7 @@ public class WindowsDummyWGLDrawable extends WindowsWGLDrawable {
         throw new GLException("WindowsDummyWGLDrawable: surface not ready (lockSurface)");
     }
     try {
-        WindowsWGLGraphicsConfiguration config = (WindowsWGLGraphicsConfiguration)ns.getGraphicsConfiguration().getNativeGraphicsConfiguration();
+        WindowsWGLGraphicsConfiguration config = (WindowsWGLGraphicsConfiguration)ns.getGraphicsConfiguration();
         config.updateGraphicsConfiguration(factory, ns, null);
         if (DEBUG) {
           System.err.println("!!! WindowsDummyWGLDrawable: "+config);
@@ -84,7 +86,7 @@ public class WindowsDummyWGLDrawable extends WindowsWGLDrawable {
     GLCapabilities caps = new GLCapabilities(glp);
     WindowsWGLGraphicsConfiguration cfg = WindowsWGLGraphicsConfigurationFactory.createDefaultGraphicsConfiguration(caps, absScreen);
     GDISurface ns = new GDISurface(cfg, windowHandle);
-    ns.setSize(width, height);
+    ns.surfaceSizeChanged(width, height);
     return new WindowsDummyWGLDrawable(factory, ns, handleWindowLifecycle);
   }
 
@@ -96,7 +98,7 @@ public class WindowsDummyWGLDrawable extends WindowsWGLDrawable {
   protected void destroyImpl() {
     if (handleHwndLifecycle && hwnd != 0) {
       GDI.ShowWindow(hwnd, GDI.SW_HIDE);
-      GDI.DestroyDummyWindow(hwnd);
+      GDIUtil.DestroyDummyWindow(hwnd);
       hwnd = 0;
     }
   }

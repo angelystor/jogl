@@ -42,23 +42,24 @@ import javax.media.opengl.GLContext;
 import javax.media.opengl.GLDrawableFactory;
 import javax.media.opengl.GLProfile;
 
+import jogamp.opengl.GLDrawableFactoryImpl;
+
 import org.junit.Test;
 
 public class TestGLExtensionQueryOffscreen {
     
-    static {
-        GLProfile.initSingleton(false);
-    }
-
     public static void main(String[] args) {
         TestGLExtensionQueryOffscreen instance = new TestGLExtensionQueryOffscreen();
         instance.testJogl2ExtensionCheck1();
         instance.testJogl2ExtensionCheck2();
     }
 
+    /** 
+     * @deprecated This test uses a non public API in jogamp.opengl.* and hence is not recommended
+     */
     @Test
     public void testJogl2ExtensionCheck1() {
-        GLDrawableFactory factory = GLDrawableFactory.getDesktopFactory();
+        GLDrawableFactoryImpl factory = (GLDrawableFactoryImpl) GLDrawableFactory.getDesktopFactory();
         GLContext sharedContext = factory.getOrCreateSharedContext(null);
         sharedContext.makeCurrent();
         String extensions;

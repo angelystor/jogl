@@ -48,15 +48,18 @@ public class X11PixmapGLXDrawable extends X11GLXDrawable {
   private long pixmap;
 
   protected X11PixmapGLXDrawable(GLDrawableFactory factory, NativeSurface target) {
-    super(factory, target, true);
-    create();
+    super(factory, target, false);
   }
 
+  protected void destroyImpl() {
+    setRealized(false);
+  }
+  
   protected void setRealizedImpl() {
     if(realized) {
-        create();
+        createPixmap();
     } else {
-        destroyImpl();
+        destroyPixmap();
     }
   }
 
@@ -64,9 +67,9 @@ public class X11PixmapGLXDrawable extends X11GLXDrawable {
     return new X11PixmapGLXContext(this, shareWith);
   }
   
-  private void create() {
+  private void createPixmap() {
     NativeSurface ns = getNativeSurface();
-    X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration) ns.getGraphicsConfiguration().getNativeGraphicsConfiguration();
+    X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration) ns.getGraphicsConfiguration();
     XVisualInfo vis = config.getXVisualInfo();
     int bitsPerPixel = vis.getDepth();
     AbstractGraphicsScreen aScreen = config.getScreen();
@@ -74,14 +77,14 @@ public class X11PixmapGLXDrawable extends X11GLXDrawable {
     long dpy = aDevice.getHandle();
     int screen = aScreen.getIndex();
 
-    pixmap = X11Util.XCreatePixmap(dpy, X11Util.RootWindow(dpy, screen),
+    pixmap = X11Lib.XCreatePixmap(dpy, X11Lib.RootWindow(dpy, screen),
                                   surface.getWidth(), surface.getHeight(), bitsPerPixel);
     if (pixmap == 0) {
         throw new GLException("XCreatePixmap failed");
     }
     long drawable = GLX.glXCreateGLXPixmap(dpy, vis, pixmap);
     if (drawable == 0) {
-        X11Util.XFreePixmap(dpy, pixmap);
+        X11Lib.XFreePixmap(dpy, pixmap);
         pixmap = 0;
         throw new GLException("glXCreateGLXPixmap failed");
     }
@@ -93,7 +96,7 @@ public class X11PixmapGLXDrawable extends X11GLXDrawable {
     }
   }
 
-  protected void destroyImpl() {
+  protected void destroyPixmap() {
     if (pixmap == 0) return;
 
     NativeSurface ns = getNativeSurface();
@@ -122,16 +125,10 @@ public class X11PixmapGLXDrawable extends X11GLXDrawable {
     GLX.glXMakeCurrent(display, 0, 0);
 
     GLX.glXDestroyGLXPixmap(display, drawable);
-    X11Util.XFreePixmap(display, pixmap);
+    X11Lib.XFreePixmap(display, pixmap);
     drawable = 0;
     pixmap = 0;
     ((SurfaceChangeable)ns).setSurfaceHandle(0);
     display = 0;
-  }
-
-  protected void swapBuffersImpl() {
-    if(DEBUG) {
-        System.err.println("unhandled swapBuffersImpl() called for: "+this);
-    }
   }
 }

@@ -28,17 +28,20 @@
  
 package com.jogamp.opengl.test.junit.jogl.acore;
 
+import java.io.IOException;
+
 import com.jogamp.newt.opengl.GLWindow;
 
-import javax.media.opengl.FPSCounter;
+import javax.media.nativewindow.util.InsetsImmutable;
 import javax.media.opengl.GLCapabilities;
 import javax.media.opengl.GLDrawableFactory;
 import javax.media.opengl.GLPbuffer;
 import javax.media.opengl.GLProfile;
 import com.jogamp.opengl.util.Animator;
 
+import com.jogamp.opengl.test.junit.util.AWTRobotUtil;
 import com.jogamp.opengl.test.junit.util.UITestCase;
-import com.jogamp.opengl.test.junit.jogl.demos.gl2.gears.Gears;
+import com.jogamp.opengl.test.junit.jogl.demos.gl2.Gears;
 
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -53,13 +56,12 @@ public class TestSharedContextListNEWT extends UITestCase {
 
     @BeforeClass
     public static void initClass() {
-        GLProfile.initSingleton(true);
         glp = GLProfile.getDefault();
         Assert.assertNotNull(glp);
         caps = new GLCapabilities(glp);
         Assert.assertNotNull(caps);
-        width  = 512;
-        height = 512;
+        width  = 256;
+        height = 256;
     }
 
     private void initShared() {
@@ -75,9 +77,10 @@ public class TestSharedContextListNEWT extends UITestCase {
     private void releaseShared() {
         Assert.assertNotNull(sharedDrawable);
         sharedDrawable.destroy();
+        sharedDrawable = null;
     }
 
-    protected GLWindow runTestGL(Animator animator, int x, int y, boolean useShared) {
+    protected GLWindow runTestGL(Animator animator, int x, int y, boolean useShared, boolean vsync) throws InterruptedException {
         GLWindow glWindow = GLWindow.create(caps);
         Assert.assertNotNull(glWindow);
         glWindow.setTitle("Shared Gears NEWT Test: "+x+"/"+y+" shared "+useShared);
@@ -86,9 +89,8 @@ public class TestSharedContextListNEWT extends UITestCase {
         }
 
         glWindow.setSize(width, height);
-        glWindow.setPosition(x, y);
 
-        Gears gears = new Gears();
+        Gears gears = new Gears(vsync ? 1 : 0);
         if(useShared) {
             gears.setGears(sharedGears.getGear1(), sharedGears.getGear2(), sharedGears.getGear3());
         }
@@ -97,6 +99,9 @@ public class TestSharedContextListNEWT extends UITestCase {
         animator.add(glWindow);
 
         glWindow.setVisible(true);
+        Assert.assertTrue(AWTRobotUtil.waitForRealized(glWindow, true));
+        Assert.assertTrue(AWTRobotUtil.waitForVisible(glWindow, true));
+        glWindow.setPosition(x, y);
 
         return glWindow;
     }
@@ -105,9 +110,12 @@ public class TestSharedContextListNEWT extends UITestCase {
     public void test01() throws InterruptedException {
         initShared();
         Animator animator = new Animator();
-        GLWindow f1 = runTestGL(animator, 0, 0, true);
-        GLWindow f2 = runTestGL(animator, width, 0, true);
-        GLWindow f3 = runTestGL(animator, 0, height, false);
+        GLWindow f1 = runTestGL(animator, 0, 0, true, false);
+        InsetsImmutable insets = f1.getInsets();
+        GLWindow f2 = runTestGL(animator, f1.getX()+width+insets.getTotalWidth(), 
+                                          f1.getY()+0, true, false);
+        GLWindow f3 = runTestGL(animator, f1.getX()+0, 
+                                          f1.getY()+height+insets.getTotalHeight(), false, true);
         animator.setUpdateFPSFrames(1, null);        
         animator.start();
         while(animator.isAnimating() && animator.getTotalFPSDuration()<duration) {
@@ -116,7 +124,7 @@ public class TestSharedContextListNEWT extends UITestCase {
         animator.stop();
 
         // here we go again: On AMD/X11 the create/destroy sequence must be the same
-        // even though this is agains the chicken/egg logic here ..
+        // even though this is against the chicken/egg logic here ..
         releaseShared();
 
         f1.destroy();
@@ -129,7 +137,7 @@ public class TestSharedContextListNEWT extends UITestCase {
 
     static long duration = 500; // ms
 
-    public static void main(String args[]) {
+    public static void main(String args[]) throws IOException {
         for(int i=0; i<args.length; i++) {
             if(args[i].equals("-time")) {
                 i++;
@@ -138,6 +146,10 @@ public class TestSharedContextListNEWT extends UITestCase {
                 } catch (Exception ex) { ex.printStackTrace(); }
             }
         }
+        /**
+        BufferedReader stdin = new BufferedReader(new InputStreamReader(System.in));
+        System.err.println("Press enter to continue");
+        System.err.println(stdin.readLine()); */         
         org.junit.runner.JUnitCore.main(TestSharedContextListNEWT.class.getName());
     }
 }

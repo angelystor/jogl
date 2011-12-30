@@ -28,7 +28,6 @@
 
 package javax.media.opengl;
 
-import com.jogamp.common.type.WriteCloneable;
 import javax.media.nativewindow.CapabilitiesImmutable;
 
 /**
@@ -37,7 +36,18 @@ import javax.media.nativewindow.CapabilitiesImmutable;
  * @see javax.media.opengl.GLCapabilities
  * @see javax.media.nativewindow.CapabilitiesImmutable
  */
-public interface GLCapabilitiesImmutable extends WriteCloneable, CapabilitiesImmutable {
+public interface GLCapabilitiesImmutable extends CapabilitiesImmutable {
+    /** 
+     * One of the platform's default sample extension 
+     * <code>EGL.EGL_SAMPLES, GLX.GLX_SAMPLES, WGLExt.WGL_SAMPLES_ARB</code>
+     * if available, or any other <i>known</i> fallback one, ie <code>EGLExt.EGL_COVERAGE_SAMPLES_NV</code>
+     */
+    public static final String DEFAULT_SAMPLE_EXTENSION = "default" ;
+    
+    /**
+     * Returns the GL profile you desire or used by the drawable.
+     */
+    GLProfile getGLProfile();
 
     /**
      * Returns the number of bits requested for the accumulation
@@ -82,14 +92,22 @@ public interface GLCapabilitiesImmutable extends WriteCloneable, CapabilitiesImm
     boolean getDoubleBuffered();
 
     /**
-     * Returns the GL profile you desire or used by the drawable.
-     */
-    GLProfile getGLProfile();
-
-    /**
      * Indicates whether hardware acceleration is enabled.
      */
     boolean getHardwareAccelerated();
+
+    /**
+     * Returns the used extension for full-scene antialiasing
+     * (FSAA), default is {@link #DEFAULT_SAMPLE_EXTENSION}.
+     */
+    String getSampleExtension();
+    
+    /**
+     * Returns whether sample buffers for full-scene antialiasing
+     * (FSAA) should be allocated for this drawable. Defaults to
+     * false.
+     */
+    boolean getSampleBuffers();
 
     /**
      * Returns the number of sample buffers to be allocated if sample
@@ -116,13 +134,6 @@ public interface GLCapabilitiesImmutable extends WriteCloneable, CapabilitiesImm
     boolean getPbufferRenderToTextureRectangle();
 
     /**
-     * Returns whether sample buffers for full-scene antialiasing
-     * (FSAA) should be allocated for this drawable. Defaults to
-     * false.
-     */
-    boolean getSampleBuffers();
-
-    /**
      * Returns the number of bits requested for the stencil buffer.
      */
     int getStencilBits();
@@ -136,8 +147,6 @@ public interface GLCapabilitiesImmutable extends WriteCloneable, CapabilitiesImm
      * Indicates whether pbuffer is used/requested.
      */
     boolean isPBuffer();
-
-    Object cloneMutable();
 
     @Override
     boolean equals(Object obj);

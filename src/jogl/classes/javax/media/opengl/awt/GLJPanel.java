@@ -82,7 +82,10 @@ import javax.media.opengl.GLPbuffer;
 import javax.media.opengl.GLProfile;
 import javax.media.opengl.GLRunnable;
 import javax.media.opengl.Threading;
+
 import com.jogamp.opengl.util.FBObject;
+import com.jogamp.opengl.util.GLBuffers;
+
 import jogamp.opengl.Debug;
 import jogamp.opengl.GLContextImpl;
 import jogamp.opengl.GLDrawableFactoryImpl;
@@ -123,9 +126,9 @@ import jogamp.opengl.awt.Java2DGLContext;
  *  </P>
 */
 
+@SuppressWarnings("serial")
 public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosingProtocol {
   private static final boolean DEBUG = Debug.debug("GLJPanel");
-  private static final boolean VERBOSE = Debug.verbose();
 
   private GLDrawableHelper drawableHelper = new GLDrawableHelper();
   private volatile boolean isInitialized;
@@ -199,15 +202,19 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
 
   /** Creates a new GLJPanel component with a default set of OpenGL
       capabilities and using the default OpenGL capabilities selection
-      mechanism. */
-  public GLJPanel() {
+      mechanism. 
+   * @throws GLException if no default profile is available for the default desktop device.
+   */
+  public GLJPanel() throws GLException {
     this(null);
   }
 
   /** Creates a new GLJPanel component with the requested set of
       OpenGL capabilities, using the default OpenGL capabilities
-      selection mechanism. */
-  public GLJPanel(GLCapabilitiesImmutable userCapsRequest) {
+      selection mechanism. 
+   * @throws GLException if no GLCapabilities are given and no default profile is available for the default desktop device.
+   */
+  public GLJPanel(GLCapabilitiesImmutable userCapsRequest) throws GLException {
     this(userCapsRequest, null, null);
   }
 
@@ -224,8 +231,11 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
       <P>
       Note: Sharing cannot be enabled using J2D OpenGL FBO sharing,
       since J2D GL Context must be shared and we can only share one context.
+    * @throws GLException if no GLCapabilities are given and no default profile is available for the default desktop device.
   */
-  public GLJPanel(GLCapabilitiesImmutable userCapsRequest, GLCapabilitiesChooser chooser, GLContext shareWith) {
+  public GLJPanel(GLCapabilitiesImmutable userCapsRequest, GLCapabilitiesChooser chooser, GLContext shareWith) 
+          throws GLException 
+  {
     super();
 
     // Works around problems on many vendors' cards; we don't need a
@@ -235,7 +245,7 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
         if (userCapsRequest != null) {
             caps = (GLCapabilities) userCapsRequest.cloneMutable();
         } else {
-            caps = new GLCapabilities(null);
+            caps = new GLCapabilities(GLProfile.getDefault(GLProfile.getDefaultDesktopDevice()));
         }
         caps.setDoubleBuffered(false);
         offscreenCaps = caps;
@@ -261,27 +271,22 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     }
   }
 
-  protected void dispose(boolean regenerate) {
+  protected void dispose() {
     if(DEBUG) {
-        Exception ex1 = new Exception("Info: dispose("+regenerate+") - start");
-        ex1.printStackTrace();
+        System.err.println("Info: dispose() - start - "+Thread.currentThread().getName());
+        Thread.dumpStack();
     }
 
-    if (backend != null) {
+    if (backend != null && backend.getContext() != null) {
       boolean animatorPaused = false;
       GLAnimatorControl animator =  getAnimator();
       if(null!=animator) {
-        if(regenerate) {
-            animatorPaused = animator.pause();
-        } else {
-            animator.remove(this);
-        }
+        animatorPaused = animator.pause();
       }
 
-      disposeRegenerate=regenerate;
-      disposeContext=backend.getContext();
-      disposeDrawable=backend.getDrawable();
-
+      final GLDrawable drawable = backend.getDrawable();
+      final GLContext context = backend.getContext();
+      
       if (Threading.isSingleThreaded() &&
           !Threading.isOpenGLThread()) {
           // Workaround for termination issues with applets --
@@ -292,41 +297,28 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
             // The user really should not be invoking remove() from this
             // thread -- but since he/she is, we can not go over to the
             // EDT at this point. Try to destroy the context from here.
-            if(disposeContext.isCreated()) {
-                drawableHelper.invokeGL(disposeDrawable, disposeContext, disposeAction, null);
+            if(context.isCreated()) {
+                drawableHelper.invokeGL(drawable, context, disposeAction, null);
             }
-          } else if(disposeContext.isCreated()) {
+          } else if(context.isCreated()) {
             Threading.invokeOnOpenGLThread(disposeOnEventDispatchThreadAction);
           }
-      } else if(disposeContext.isCreated()) {
-          drawableHelper.invokeGL(disposeDrawable, disposeContext, disposeAction, null);
+      } else if(context.isCreated()) {
+          drawableHelper.invokeGL(drawable, context, disposeAction, null);
       }
-
-      if(!regenerate) {
-          AbstractGraphicsDevice adevice = disposeDrawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration().getScreen().getDevice();
-          String adeviceMsg=null;
-          if(DEBUG) {
-            adeviceMsg = adevice.toString();
-          }
-          // boolean closed = adevice.close();
-          boolean closed = false;
-          if (DEBUG) {
-              System.err.println("GLJPanel.dispose(false): closed GraphicsDevice: " + adeviceMsg + ", result: " + closed);
-          }
-      }
-
-      backend.setContext(disposeContext);
-      if(null==disposeContext) {
-        isInitialized = false;
+      if(null != backend) {
+          // not yet destroyed due to backend.isUsingOwnThreadManagment() == true
+          backend.destroy();
+          isInitialized = false;
       }
 
       if(animatorPaused) {
         animator.resume();
-      }
+      }     
     }
-
+    
     if(DEBUG) {
-        System.err.println("dispose("+regenerate+") - stop");
+        System.err.println("dispose() - stop");
     }
   }
 
@@ -342,8 +334,8 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
       super.paintComponent() in their paintComponent() method in order
       to function properly. <P>
 
-      <B>Overrides:</B>
       <DL><DD><CODE>paintComponent</CODE> in class <CODE>javax.swing.JComponent</CODE></DD></DL> */
+  @Override
   protected void paintComponent(final Graphics g) {
     if (Beans.isDesignTime()) {
       // Make GLJPanel behave better in NetBeans GUI builder
@@ -391,8 +383,8 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
       super.addNotify() in their addNotify() method in order to
       function properly. <P>
 
-      <B>Overrides:</B>
       <DL><DD><CODE>addNotify</CODE> in class <CODE>java.awt.Component</CODE></DD></DL> */
+  @Override
   public void addNotify() {
     super.addNotify();
     if (DEBUG) {
@@ -405,26 +397,13 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
       super.removeNotify() in their removeNotify() method in order to
       function properly. <P>
 
-      <B>Overrides:</B>
       <DL><DD><CODE>removeNotify</CODE> in class <CODE>java.awt.Component</CODE></DD></DL> */
+  @Override
   public void removeNotify() {
-    if(DEBUG) {
-        Exception ex1 = new Exception("Info: removeNotify - start");
-        ex1.printStackTrace();
-    }
-
     awtWindowClosingProtocol.removeClosingListener();
 
-    dispose(false);
-    if (backend != null) {
-      backend.destroy();
-      backend = null;
-    }
-    isInitialized = false;
+    dispose();
     super.removeNotify();
-    if(DEBUG) {
-        System.err.println("Info: removeNotify - end");
-    }
   }
 
   /** Overridden to cause {@link GLDrawableHelper#reshape} to be
@@ -432,9 +411,10 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
       which override this method must call super.reshape() in
       their reshape() method in order to function properly. <P>
 
-      <B>Overrides:</B>
       <DL><DD><CODE>reshape</CODE> in class <CODE>java.awt.Component</CODE></DD></DL> */
-  public void reshape(int x, int y, int width, int height) {
+  @SuppressWarnings("deprecation")
+  @Override
+public void reshape(int x, int y, int width, int height) {
     super.reshape(x, y, width, height);
 
     // reshapeX = x;
@@ -444,6 +424,7 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     handleReshape = true;
   }
 
+  @Override
   public void setOpaque(boolean opaque) {
     if (backend != null) {
       backend.setOpaque(opaque);
@@ -476,7 +457,7 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
   }
 
   public GLContext createContext(GLContext shareWith) {
-    return backend.createContext(shareWith);
+    return (null != backend) ? backend.createContext(shareWith) : null;
   }
 
   public void setRealized(boolean realized) {
@@ -685,7 +666,7 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
         return;
       }
       if (sendReshape) {
-        if (DEBUG||VERBOSE) {
+        if (DEBUG) {
           System.err.println("display: reshape(" + viewportX + "," + viewportY + " " + panelWidth + "x" + panelHeight + ")");
         }
         drawableHelper.reshape(GLJPanel.this, viewportX, viewportY, panelWidth, panelHeight);
@@ -708,28 +689,16 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     return "AWT-GLJPanel[ "+((null!=backend)?backend.getDrawable().getClass().getName():"null-drawable")+"]";
   }
 
-  private boolean disposeRegenerate;
-  private GLContext disposeContext;
-  private GLDrawable disposeDrawable;
   private DisposeAction disposeAction = new DisposeAction();
 
   class DisposeAction implements Runnable {
       public void run() {
           updater.dispose(GLJPanel.this);
 
-          if (null != disposeContext) {
-              disposeContext.destroy();
-              disposeContext = null;
-          }
-          if (null != disposeDrawable) {
-              disposeDrawable.setRealized(false);
-          }
-          if (null != disposeDrawable) {
-              if (disposeRegenerate) {
-                  disposeDrawable.setRealized(true);
-                  disposeContext = (GLContextImpl) disposeDrawable.createContext(shareWith);
-                  disposeContext.setSynchronized(true);
-              }
+          if (backend != null && !backend.isUsingOwnThreadManagment()) {
+              backend.destroy();
+              backend = null;
+              isInitialized = false;      
           }
       }
   }
@@ -739,11 +708,10 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
 
   class DisposeOnEventDispatchThreadAction implements Runnable {
     public void run() {
-      drawableHelper.invokeGL(disposeDrawable, disposeContext, disposeAction, null);
+      drawableHelper.invokeGL(backend.getDrawable(), backend.getContext(), disposeAction, null);
     }
   }
-
-
+  
   class InitAction implements Runnable {
     public void run() {
       updater.init(GLJPanel.this);
@@ -771,17 +739,7 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     if (number == 0) {
       return 2;
     }
-
-    if (((number-1) & number) == 0) {
-      //ex: 8 -> 0b1000; 8-1=7 -> 0b0111; 0b1000&0b0111 == 0
-      return number;
-    }
-    int power = 0;
-    while (number > 0) {
-      number = number>>1;
-      power++;
-    }
-    return (1<<power);
+    return GLBuffers.getNextPowerOf2(number);
   }
 
   private int getGLInteger(GL gl, int which) {
@@ -798,6 +756,9 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
   // software / pixmap rendering, pbuffer-based acceleration, Java 2D
   // / JOGL bridge
   static interface Backend {
+    // Create, Destroy, ..
+    public boolean isUsingOwnThreadManagment();
+    
     // Called each time the backend needs to initialize itself
     public void initialize();
 
@@ -857,7 +818,6 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     protected int                   readBackWidthInPixels;
     protected int                   readBackHeightInPixels;
 
-    private int awtFormat;
     private int glFormat;
     private int glType;
 
@@ -1026,7 +986,12 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     private GLDrawableImpl offscreenDrawable;
     private GLContextImpl offscreenContext;
 
+    public boolean isUsingOwnThreadManagment() { return false; }
+    
     public void initialize() {
+      if(DEBUG) {
+          System.err.println("SoftwareBackend: initialize() - "+Thread.currentThread().getName());
+      }
       // Fall-through path: create an offscreen context instead
       offscreenDrawable = (GLDrawableImpl) factory.createOffscreenDrawable(
                                                 null /* default platform device */,
@@ -1034,6 +999,7 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
                                                 chooser,
                                                 Math.max(1, panelWidth),
                                                 Math.max(1, panelHeight));
+      offscreenDrawable.setRealized(true);
       offscreenContext = (GLContextImpl) offscreenDrawable.createContext(shareWith);
       offscreenContext.setSynchronized(true);
       offscreenContext.setContextCreationFlags(additionalCtxCreationFlags);
@@ -1042,18 +1008,25 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     }
 
     public void destroy() {
+      if(DEBUG) {
+          System.err.println("SoftwareBackend: destroy() - offscreenContext: "+(null!=offscreenContext)+" - offscreenDrawable: "+(null!=offscreenDrawable)+" - "+Thread.currentThread().getName());
+      }
       if (offscreenContext != null) {
         offscreenContext.destroy();
         offscreenContext = null;
       }
       if (offscreenDrawable != null) {
+        final AbstractGraphicsDevice adevice = offscreenDrawable.getNativeSurface().getGraphicsConfiguration().getScreen().getDevice();
         offscreenDrawable.destroy();
         offscreenDrawable = null;
+        if(null != adevice) {
+            adevice.close();
+        }
       }
     }
 
     public GLContext createContext(GLContext shareWith) {
-      return offscreenDrawable.createContext(shareWith);
+      return (null != offscreenDrawable) ? offscreenDrawable.createContext(shareWith) : null;
     }
 
     public void setContext(GLContext ctx) {
@@ -1112,9 +1085,14 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     private int       pbufferWidth  = 256;
     private int       pbufferHeight = 256;
 
+    public boolean isUsingOwnThreadManagment() { return false; }
+    
     public void initialize() {
       if (pbuffer != null) {
         throw new InternalError("Creating pbuffer twice without destroying it (memory leak / correctness bug)");
+      }
+      if(DEBUG) {
+          System.err.println("PbufferBackend: initialize() - "+Thread.currentThread().getName());
       }
       try {
         pbuffer = factory.createGLPbuffer(null /* default platform device */,
@@ -1139,6 +1117,9 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     }
 
     public void destroy() {
+      if(DEBUG) {
+          System.err.println("PbufferBackend: destroy() - pbuffer: "+(null!=pbuffer)+" - "+Thread.currentThread().getName());
+      }
       if (pbuffer != null) {
         pbuffer.destroy();
         pbuffer = null;
@@ -1146,7 +1127,7 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     }
 
     public GLContext createContext(GLContext shareWith) {
-      return pbuffer.createContext(shareWith);
+      return (null != pbuffer) ? pbuffer.createContext(shareWith) : null;
     }
 
     public void setContext(GLContext ctx) {
@@ -1260,7 +1241,6 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     private Object j2dSurface;
     // Graphics object being used during Java2D update action
     // (absolutely essential to cache this)
-    private Graphics cached2DGraphics;
     // No-op context representing the Java2D OpenGL context
     private GLContext j2dContext;
     // Context associated with no-op drawable representing the JOGL
@@ -1303,7 +1283,12 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     // comment related to Issue 274 below
     private GraphicsConfiguration workaroundConfig;
 
+    public boolean isUsingOwnThreadManagment() { return true; }
+    
     public void initialize() {
+      if(DEBUG) {
+          System.err.println("J2DOGL: initialize() - "+Thread.currentThread().getName());
+      }
       // No-op in this implementation; everything is done lazily
       isInitialized = true;
     }
@@ -1311,6 +1296,9 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     public void destroy() {
       Java2D.invokeWithOGLContextCurrent(null, new Runnable() {
           public void run() {
+            if(DEBUG) {
+                System.err.println("J2DOGL: destroy() - joglContext: "+(null!=joglContext)+" - joglDrawable: "+(null!=joglDrawable)+" - "+Thread.currentThread().getName());
+            }
             if (joglContext != null) {
               joglContext.destroy();
               joglContext = null;
@@ -1329,9 +1317,10 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
     }
 
     public GLContext createContext(GLContext shareWith) {
-      // FIXME: should implement this, but it was not properly
-      // implemented before the refactoring anyway
-      throw new GLException("Not yet implemented");
+      if(null != shareWith) {
+          throw new GLException("J2DOGLBackend cannot create context w/ additional shared context, since it already needs to share the context w/ J2D.");
+      }
+      return (null != joglDrawable && null != j2dContext) ? joglDrawable.createContext(j2dContext) : null;
     }
 
     public void setContext(GLContext ctx) {
@@ -1367,12 +1356,12 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
       Rectangle r = Java2D.getOGLScissorBox(g);
 
       if (r == null) {
-        if (DEBUG && VERBOSE) {
+        if (DEBUG) {
           System.err.println("Java2D.getOGLScissorBox() returned null");
         }
         return false;
       }
-      if (DEBUG && VERBOSE) {
+      if (DEBUG) {
         System.err.println("GLJPanel: gl.glScissor(" + r.x + ", " + r.y + ", " + r.width + ", " + r.height + ")");
       }
 
@@ -1413,14 +1402,14 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
               // Need to do workarounds
               fbObjectWorkarounds = true;
               createNewDepthBuffer = true;
-              if (DEBUG || VERBOSE) {
+              if (DEBUG) {
                   System.err.println("GLJPanel: ERR GL_FRAMEBUFFER_BINDING: Discovered Invalid J2D FBO("+frameBuffer[0]+"): "+FBObject.getStatusString(status) +
                                      ", frame_buffer_object workarounds to be necessary");
               }
           } else {
             // Don't need the frameBufferTexture temporary any more
             frameBufferTexture = null;
-            if (DEBUG || VERBOSE) {
+            if (DEBUG) {
               System.err.println("GLJPanel: OK GL_FRAMEBUFFER_BINDING: "+frameBuffer[0]);
             }
           }
@@ -1467,7 +1456,7 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
                                     fboTextureTarget,
                                     frameBufferTexture[0],
                                     0);
-          if (DEBUG && VERBOSE) {
+          if (DEBUG) {
             System.err.println("GLJPanel: frameBufferDepthBuffer: " + frameBufferDepthBuffer[0]);
           }
           gl.glFramebufferRenderbuffer(GL.GL_FRAMEBUFFER,
@@ -1484,7 +1473,7 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
           }
         }
       } else {
-        if (DEBUG && VERBOSE) {
+        if (DEBUG) {
           System.err.println("GLJPanel: Setting up drawBuffer " + drawBuffer[0] +
                              " and readBuffer " + readBuffer[0]);
         }
@@ -1542,14 +1531,14 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
 
       Java2D.invokeWithOGLContextCurrent(g, new Runnable() {
           public void run() {
-            if (DEBUG && VERBOSE) {
-              System.err.println("-- In invokeWithOGLContextCurrent");
+            if (DEBUG) {
+              System.err.println("-- In invokeWithOGLContextCurrent - "+Thread.currentThread().getName());
             }
 
             // Create no-op context representing Java2D context
             if (j2dContext == null) {
               j2dContext = factory.createExternalGLContext();
-              if (DEBUG||VERBOSE) {
+              if (DEBUG) {
                 System.err.println("-- Created External Context: "+j2dContext);
               }
               if (DEBUG) {
@@ -1609,13 +1598,13 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
                     joglContext = null;
                     joglDrawable = null;
                     sendReshape = true;
-                    if (DEBUG||VERBOSE) {
+                    if (DEBUG) {
                       System.err.println("Sending reshape because surface changed");
                       System.err.println("New surface = " + curSurface);
                     }
                   }
                   j2dSurface = curSurface;
-                  if (DEBUG || VERBOSE) {
+                  if (DEBUG) {
                       System.err.print("-- Surface type: ");
                       int surfaceType = Java2D.getOGLSurfaceType(g);
                       if (surfaceType == Java2D.UNDEFINED) {
@@ -1636,22 +1625,20 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
                   }
                 }
                 if (joglContext == null) {
-                  AbstractGraphicsDevice device = j2dContext.getGLDrawable().getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration().getScreen().getDevice();
+                  AbstractGraphicsDevice device = j2dContext.getGLDrawable().getNativeSurface().getGraphicsConfiguration().getScreen().getDevice();
                   if (factory.canCreateExternalGLDrawable(device)) {
                     joglDrawable = factory.createExternalGLDrawable();
-                    // FIXME: Need to share with j2d context, due to FBO resource .. 
-                    // - ORIG: joglContext = joglDrawable.createContext(shareWith);
                     joglContext = joglDrawable.createContext(j2dContext);
-                    if (DEBUG||VERBOSE) {
+                    joglContext.setSynchronized(true);
+                    if (DEBUG) {
                         System.err.println("-- Created External Drawable: "+joglDrawable);
                         System.err.println("-- Created Context: "+joglContext);
                     }
                   } else if (factory.canCreateContextOnJava2DSurface(device)) {
                     // Mac OS X code path
-                    // FIXME: Need to share with j2d context, due to FBO resource .. 
-                    // - ORIG: joglContext = factory.createContextOnJava2DSurface(g, shareWith);
                     joglContext = factory.createContextOnJava2DSurface(g, j2dContext);
-                    if (DEBUG||VERBOSE) {
+                    joglContext.setSynchronized(true);
+                    if (DEBUG) {
                         System.err.println("-- Created Context: "+joglContext);
                     }
                   }
@@ -1689,7 +1676,7 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
           checkedForFBObjectWorkarounds=true;
           fbObjectWorkarounds = true;
           createNewDepthBuffer = true;
-          if (DEBUG || VERBOSE) {
+          if (DEBUG) {
               System.err.println("GLJPanel: Fetched ERR GL_FRAMEBUFFER_BINDING: "+frameBuffer[0]+" - NOT A FBO"+
                                  ", frame_buffer_object workarounds to be necessary");
           }
@@ -1708,7 +1695,7 @@ public class GLJPanel extends JPanel implements AWTGLAutoDrawable, WindowClosing
                                                      GL.GL_COLOR_ATTACHMENT0,
                                                      GL.GL_FRAMEBUFFER_ATTACHMENT_OBJECT_NAME,
                                                      frameBufferTexture, 0);
-            if (DEBUG && VERBOSE) {
+            if (DEBUG) {
                 System.err.println("GLJPanel: FBO COLOR_ATTACHMENT0: " + frameBufferTexture[0]);
             }
         }

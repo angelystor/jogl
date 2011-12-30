@@ -40,8 +40,14 @@
 
 package jogamp.opengl;
 
-import javax.media.nativewindow.*;
-import javax.media.opengl.*;
+import javax.media.nativewindow.AbstractGraphicsDevice;
+import javax.media.nativewindow.NativeSurface;
+import javax.media.opengl.GLCapabilitiesImmutable;
+import javax.media.opengl.GLContext;
+import javax.media.opengl.GLDrawable;
+import javax.media.opengl.GLDrawableFactory;
+import javax.media.opengl.GLException;
+import javax.media.opengl.GLProfile;
 
 public abstract class GLDrawableImpl implements GLDrawable {
   protected static final boolean DEBUG = Debug.debug("GLDrawable");
@@ -52,7 +58,7 @@ public abstract class GLDrawableImpl implements GLDrawable {
       this.factory = factory;
       this.surface = comp;
       this.realized = realized;
-      this.requestedCapabilities = (GLCapabilitiesImmutable) surface.getGraphicsConfiguration().getNativeGraphicsConfiguration().getRequestedCapabilities();
+      this.requestedCapabilities = (GLCapabilitiesImmutable) surface.getGraphicsConfiguration().getRequestedCapabilities();
   }
 
   /** 
@@ -79,7 +85,7 @@ public abstract class GLDrawableImpl implements GLDrawable {
   }
 
   public final void swapBuffers() throws GLException {
-    GLCapabilitiesImmutable caps = (GLCapabilitiesImmutable)surface.getGraphicsConfiguration().getNativeGraphicsConfiguration().getChosenCapabilities();
+    GLCapabilitiesImmutable caps = (GLCapabilitiesImmutable)surface.getGraphicsConfiguration().getChosenCapabilities();
     if ( caps.getDoubleBuffered() ) {
         if(!surface.surfaceSwap()) {
             int lockRes = lockSurface(); // it's recursive, so it's ok within [makeCurrent .. release]
@@ -87,7 +93,6 @@ public abstract class GLDrawableImpl implements GLDrawable {
                 return;
             }
             try {
-                AbstractGraphicsDevice aDevice = getNativeSurface().getGraphicsConfiguration().getScreen().getDevice();
                 if (NativeSurface.LOCK_SURFACE_CHANGED == lockRes) {
                     updateHandle();
                 }
@@ -115,7 +120,7 @@ public abstract class GLDrawableImpl implements GLDrawable {
   }
 
   public GLCapabilitiesImmutable getChosenGLCapabilities() {
-    return  (GLCapabilitiesImmutable) surface.getGraphicsConfiguration().getNativeGraphicsConfiguration().getChosenCapabilities();
+    return  (GLCapabilitiesImmutable) surface.getGraphicsConfiguration().getChosenCapabilities();
   }
 
   public GLCapabilitiesImmutable getRequestedGLCapabilities() {
@@ -126,7 +131,10 @@ public abstract class GLDrawableImpl implements GLDrawable {
     return surface;
   }
 
+  /** called with locked surface @ setRealized(false) */ 
   protected void destroyHandle() {}
+  
+  /** called with locked surface @ setRealized(true) or @ lockSurface(..) when surface changed */ 
   protected void updateHandle() {}
 
   public long getHandle() {
@@ -196,7 +204,7 @@ public abstract class GLDrawableImpl implements GLDrawable {
   }
 
   public String toString() {
-    return getClass().getName()+"[Realized "+isRealized()+
+    return getClass().getSimpleName()+"[Realized "+isRealized()+
                 ",\n\tFactory   "+getFactory()+
                 ",\n\thandle    "+toHexString(getHandle())+
                 ",\n\tWindow    "+getNativeSurface()+"]";

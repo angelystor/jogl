@@ -40,9 +40,25 @@
 
 package jogamp.opengl;
 
-import java.nio.*;
-import javax.media.nativewindow.*;
-import javax.media.opengl.*;
+import java.nio.Buffer;
+
+import javax.media.nativewindow.AbstractGraphicsDevice;
+import javax.media.nativewindow.NativeSurface;
+import javax.media.nativewindow.NativeWindowFactory;
+import javax.media.nativewindow.OffscreenLayerSurface;
+import javax.media.nativewindow.ProxySurface;
+import javax.media.nativewindow.SurfaceChangeable;
+import javax.media.opengl.GLCapabilities;
+import javax.media.opengl.GLCapabilitiesChooser;
+import javax.media.opengl.GLCapabilitiesImmutable;
+import javax.media.opengl.GLContext;
+import javax.media.opengl.GLDrawable;
+import javax.media.opengl.GLDrawableFactory;
+import javax.media.opengl.GLException;
+import javax.media.opengl.GLPbuffer;
+import javax.media.opengl.GLProfile;
+
+import jogamp.nativewindow.MutableGraphicsConfiguration;
 
 /** Extends GLDrawableFactory with a few methods for handling
     typically software-accelerated offscreen rendering (Device
@@ -56,6 +72,22 @@ public abstract class GLDrawableFactoryImpl extends GLDrawableFactory {
     super();
   }
 
+  /**
+   * Returns the shared context mapped to the <code>device</code> {@link AbstractGraphicsDevice#getConnection()},
+   * either a pre-existing or newly created, or <code>null</code> if creation failed or not supported.<br>
+   * Creation of the shared context is tried only once.
+   *
+   * @param device which {@link javax.media.nativewindow.AbstractGraphicsDevice#getConnection() connection} denotes the shared the target device, may be <code>null</code> for the platform's default device.
+   */
+  public final GLContext getOrCreateSharedContext(AbstractGraphicsDevice device) {
+      device = validateDevice(device);
+      if(null!=device) {
+        return getOrCreateSharedContextImpl(device);
+      }
+      return null;
+  }
+  protected abstract GLContext getOrCreateSharedContextImpl(AbstractGraphicsDevice device);
+  
   /**
    * Returns the shared device mapped to the <code>device</code> {@link AbstractGraphicsDevice#getConnection()},
    * either a preexisting or newly created, or <code>null</code> if creation failed or not supported.<br>
@@ -96,23 +128,39 @@ public abstract class GLDrawableFactoryImpl extends GLDrawableFactory {
     if (target == null) {
       throw new IllegalArgumentException("Null target");
     }
-    AbstractGraphicsConfiguration config = target.getGraphicsConfiguration().getNativeGraphicsConfiguration();
-    GLCapabilitiesImmutable caps = (GLCapabilitiesImmutable) config.getChosenCapabilities();
+    final MutableGraphicsConfiguration config = (MutableGraphicsConfiguration) target.getGraphicsConfiguration();
+    GLCapabilitiesImmutable chosenCaps = (GLCapabilitiesImmutable) config.getChosenCapabilities();
     AbstractGraphicsDevice adevice = config.getScreen().getDevice();
     GLDrawable result = null;
     adevice.lock();
     try {
-        if(caps.isOnscreen()) {
+        final OffscreenLayerSurface ols = NativeWindowFactory.getOffscreenLayerSurface(target, true);
+        if(null != ols) {
+            // layered surface -> Offscreen/PBuffer
+            final GLCapabilities chosenCapsMod = (GLCapabilities) chosenCaps.cloneMutable();
+            chosenCapsMod.setOnscreen(false);
+            chosenCapsMod.setPBuffer(canCreateGLPbuffer(adevice));
+            config.setChosenCapabilities(chosenCapsMod);
+            if(DEBUG) {
+                System.err.println("GLDrawableFactoryImpl.createGLDrawable -> OnscreenDrawable -> Offscreen-Layer: "+target);
+            }
+            if( ! ( target instanceof SurfaceChangeable ) ) {
+                throw new IllegalArgumentException("Passed NativeSurface must implement SurfaceChangeable for offscreen layered surface: "+target);
+            }
+            result = createOffscreenDrawableImpl(target);            
+        } else if(chosenCaps.isOnscreen()) {
+            // onscreen
             if(DEBUG) {
                 System.err.println("GLDrawableFactoryImpl.createGLDrawable -> OnscreenDrawable: "+target);
             }
             result = createOnscreenDrawableImpl(target);
         } else {
+            // offscreen
+            if(DEBUG) {
+                System.err.println("GLDrawableFactoryImpl.createGLDrawable -> OffScreenDrawable (PBuffer: "+chosenCaps.isPBuffer()+"): "+target);
+            }
             if( ! ( target instanceof SurfaceChangeable ) ) {
                 throw new IllegalArgumentException("Passed NativeSurface must implement SurfaceChangeable for offscreen: "+target);
-            }
-            if(DEBUG) {
-                System.err.println("GLDrawableFactoryImpl.createGLDrawable -> OffScreenDrawable (PBuffer: "+caps.isPBuffer()+"): "+target);
             }
             result = createOffscreenDrawableImpl(target);
         }
@@ -164,6 +212,9 @@ public abstract class GLDrawableFactoryImpl extends GLDrawableFactory {
     device.lock();
     try {
         drawable = (GLDrawableImpl) createGLDrawable( createOffscreenSurfaceImpl(device, capsChosen, capsRequested, chooser, width, height) );
+        if(null != drawable) {
+            drawable.setRealized(true);
+        }
     } finally {
         device.unlock();
     }
@@ -279,15 +330,6 @@ public abstract class GLDrawableFactoryImpl extends GLDrawableFactory {
   //
   // GLDrawableFactoryImpl details
   //
-
-  protected void maybeDoSingleThreadedWorkaround(Runnable action) {
-    if (Threading.isSingleThreaded() &&
-        !Threading.isOpenGLThread()) {
-      Threading.invokeOnOpenGLThread(action);
-    } else {
-      action.run();
-    }
-  }
 
   /**
    * Returns the sole GLDrawableFactoryImpl instance.

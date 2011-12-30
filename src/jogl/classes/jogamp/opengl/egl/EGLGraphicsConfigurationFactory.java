@@ -49,13 +49,16 @@ import javax.media.opengl.GLException;
 import javax.media.opengl.GLProfile;
 import javax.media.opengl.GLDrawableFactory;
 
+import com.jogamp.common.nio.Buffers;
 import com.jogamp.common.nio.PointerBuffer;
+
 import jogamp.opengl.GLGraphicsConfigurationFactory;
 import jogamp.opengl.GLGraphicsConfigurationUtil;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.io.PrintStream;
+import java.nio.IntBuffer;
 
 
 /** Subclass of GraphicsConfigurationFactory used when non-AWT tookits
@@ -64,12 +67,13 @@ import java.io.PrintStream;
     GraphicsDevice and GraphicsConfiguration abstractions. */
 
 public class EGLGraphicsConfigurationFactory extends GLGraphicsConfigurationFactory {
-    protected static final boolean DEBUG = GraphicsConfigurationFactory.DEBUG || jogamp.opengl.Debug.debug("EGL");
     static EGLGLCapabilities.EglCfgIDComparator EglCfgIDComparator = new EGLGLCapabilities.EglCfgIDComparator();
 
-    EGLGraphicsConfigurationFactory() {
+    static void registerFactory() {
         // become the selector for KD/EGL ..
-        GraphicsConfigurationFactory.registerFactory(javax.media.nativewindow.egl.EGLGraphicsDevice.class, this);
+        GraphicsConfigurationFactory.registerFactory(javax.media.nativewindow.egl.EGLGraphicsDevice.class, new EGLGraphicsConfigurationFactory());
+    }
+    private EGLGraphicsConfigurationFactory() {
     }
 
     protected AbstractGraphicsConfiguration chooseGraphicsConfigurationImpl (
@@ -95,11 +99,11 @@ public class EGLGraphicsConfigurationFactory extends GLGraphicsConfigurationFact
         return chooseGraphicsConfigurationStatic((GLCapabilitiesImmutable) capsChosen,
                                                  (GLCapabilitiesImmutable) capsRequested,
                                                  (GLCapabilitiesChooser) chooser,
-                                                 absScreen);
+                                                 absScreen, -1);
     }
 
-    protected static List/*<EGLGLCapabilities>*/ getAvailableCapabilities(EGLDrawableFactory factory, AbstractGraphicsDevice device) {
-        EGLDrawableFactory.SharedResource sharedResource = factory.getOrCreateSharedResource(device);
+    protected static List<GLCapabilitiesImmutable> getAvailableCapabilities(EGLDrawableFactory factory, AbstractGraphicsDevice device) {
+        EGLDrawableFactory.SharedResource sharedResource = factory.getOrCreateEGLSharedResource(device);
         if(null == sharedResource) {
             throw new GLException("Shared resource for device n/a: "+device);
         }
@@ -107,24 +111,22 @@ public class EGLGraphicsConfigurationFactory extends GLGraphicsConfigurationFact
         long eglDisplay = eglDevice.getHandle();
 
         List/*<EGLGLCapabilities>*/ availableCaps = null;
-        int[] maxConfigs = new int[1];
+        IntBuffer numConfigs = Buffers.newDirectIntBuffer(1);
 
-        if(!EGL.eglGetConfigs(eglDisplay, null, 0, maxConfigs, 0)) {
+        if(!EGL.eglGetConfigs(eglDisplay, null, 0, numConfigs)) {
             throw new GLException("Graphics configuration get maxConfigs (eglGetConfigs) call failed, error "+toHexString(EGL.eglGetError()));
         }
-        if(0 == maxConfigs[0]) {
+        if(0 == numConfigs.get(0)) {
             throw new GLException("Graphics configuration get maxConfigs (eglGetConfigs) no configs");
         }
 
-        PointerBuffer configs = PointerBuffer.allocateDirect(maxConfigs[0]);
-        int[] numConfigs = new int[1];
+        PointerBuffer configs = PointerBuffer.allocateDirect(numConfigs.get(0));
 
-        if(!EGL.eglGetConfigs(eglDisplay, configs, configs.capacity(), numConfigs, 0)) {
+        if(!EGL.eglGetConfigs(eglDisplay, configs, configs.capacity(), numConfigs)) {
             throw new GLException("Graphics configuration get all configs (eglGetConfigs) call failed, error "+toHexString(EGL.eglGetError()));
         }
-        if (numConfigs[0] > 0) {
-            GLProfile glp = GLProfile.getDefault(device);
-            availableCaps = eglConfigs2GLCaps(glp, eglDisplay, configs, numConfigs[0], GLGraphicsConfigurationUtil.ALL_BITS);
+        if (numConfigs.get(0) > 0) {
+            availableCaps = eglConfigs2GLCaps(null, eglDisplay, configs, numConfigs.get(0), GLGraphicsConfigurationUtil.ALL_BITS);
             if( null != availableCaps && availableCaps.size() > 1) {
                 Collections.sort(availableCaps, EglCfgIDComparator);
             }
@@ -133,10 +135,10 @@ public class EGLGraphicsConfigurationFactory extends GLGraphicsConfigurationFact
         return availableCaps;
     }
 
-    private static EGLGraphicsConfiguration chooseGraphicsConfigurationStatic(GLCapabilitiesImmutable capsChosen,
-                                                                              GLCapabilitiesImmutable capsReq,
-                                                                              GLCapabilitiesChooser chooser,
-                                                                              AbstractGraphicsScreen absScreen) {
+    public static EGLGraphicsConfiguration chooseGraphicsConfigurationStatic(GLCapabilitiesImmutable capsChosen,
+                                                                             GLCapabilitiesImmutable capsReq,
+                                                                             GLCapabilitiesChooser chooser,
+                                                                             AbstractGraphicsScreen absScreen, int nativeVisualID) {
         if (capsChosen == null) {
             capsChosen = new GLCapabilities(null);
         }
@@ -160,7 +162,7 @@ public class EGLGraphicsConfigurationFactory extends GLGraphicsConfigurationFact
 
         GLProfile glp = capsChosen.getGLProfile();
 
-        EGLGraphicsConfiguration res = eglChooseConfig(eglDisplay, capsChosen, capsReq, chooser, absScreen);
+        EGLGraphicsConfiguration res = eglChooseConfig(eglDisplay, capsChosen, capsReq, chooser, absScreen, nativeVisualID);
         if(null!=res) {
             return res;
         }
@@ -181,7 +183,7 @@ public class EGLGraphicsConfigurationFactory extends GLGraphicsConfigurationFact
         if(DEBUG) {
             System.err.println("trying fixed caps (1): "+fixedCaps);
         }
-        res = eglChooseConfig(eglDisplay, fixedCaps, capsReq, chooser, absScreen);
+        res = eglChooseConfig(eglDisplay, fixedCaps, capsReq, chooser, absScreen, nativeVisualID);
         if(null!=res) {
             return res;
         }
@@ -196,7 +198,7 @@ public class EGLGraphicsConfigurationFactory extends GLGraphicsConfigurationFact
         if(DEBUG) {
             System.err.println("trying fixed caps (2): "+fixedCaps);
         }
-        res = eglChooseConfig(eglDisplay, fixedCaps, capsReq, chooser, absScreen);
+        res = eglChooseConfig(eglDisplay, fixedCaps, capsReq, chooser, absScreen, nativeVisualID);
         if(null!=res) {
             return res;
         }
@@ -213,7 +215,7 @@ public class EGLGraphicsConfigurationFactory extends GLGraphicsConfigurationFact
         if(DEBUG) {
             System.err.println("trying fixed caps (3): "+fixedCaps);
         }
-        res = eglChooseConfig(eglDisplay, fixedCaps, capsReq, chooser, absScreen);
+        res = eglChooseConfig(eglDisplay, fixedCaps, capsReq, chooser, absScreen, nativeVisualID);
         if(null!=res) {
             return res;
         }
@@ -223,51 +225,52 @@ public class EGLGraphicsConfigurationFactory extends GLGraphicsConfigurationFact
     static EGLGraphicsConfiguration eglChooseConfig(long eglDisplay, 
                                                     GLCapabilitiesImmutable capsChosen, GLCapabilitiesImmutable capsRequested,
                                                     GLCapabilitiesChooser chooser,
-                                                    AbstractGraphicsScreen absScreen) {
-        GLProfile glp = capsChosen.getGLProfile();
-        boolean onscreen = capsChosen.isOnscreen();
-        boolean usePBuffer = capsChosen.isPBuffer();
-        List/*<EGLGLCapabilities>*/ availableCaps = null;
+                                                    AbstractGraphicsScreen absScreen,
+                                                    int nativeVisualID) {
+        final GLProfile glp = capsChosen.getGLProfile();
+        final boolean onscreen = capsChosen.isOnscreen();
+        final boolean usePBuffer = capsChosen.isPBuffer();
         final int winattrmask = GLGraphicsConfigurationUtil.getWinAttributeBits(onscreen, usePBuffer);
+        List/*<EGLGLCapabilities>*/ availableCaps = null;
         int recommendedIndex = -1;
         long recommendedEGLConfig = -1;
-        int[] maxConfigs = new int[1];
+        IntBuffer numConfigs = Buffers.newDirectIntBuffer(1);
 
-        if(!EGL.eglGetConfigs(eglDisplay, null, 0, maxConfigs, 0)) {
-            throw new GLException("Graphics configuration get maxConfigs (eglGetConfigs) call failed, error "+toHexString(EGL.eglGetError()));
+        if(!EGL.eglGetConfigs(eglDisplay, null, 0, numConfigs)) {
+            throw new GLException("EGLGraphicsConfiguration.eglChooseConfig: Get maxConfigs (eglGetConfigs) call failed, error "+toHexString(EGL.eglGetError()));
         }
-        if(0 == maxConfigs[0]) {
-            throw new GLException("Graphics configuration get maxConfigs (eglGetConfigs) no configs");
+        if(0 == numConfigs.get(0)) {
+            throw new GLException("EGLGraphicsConfiguration.eglChooseConfig: Get maxConfigs (eglGetConfigs) no configs");
         }
         if (DEBUG) {
-            System.err.println("!!! eglChooseConfig maxConfigs: "+maxConfigs[0]);
+            System.err.println("EGLGraphicsConfiguration.eglChooseConfig: eglChooseConfig maxConfigs: "+numConfigs.get(0));
+            System.err.println("EGLGraphicsConfiguration.eglChooseConfig: eglDisplay "+toHexString(eglDisplay)+", "+capsChosen);
         }
 
-        int[] attrs = EGLGraphicsConfiguration.GLCapabilities2AttribList(capsChosen);
-        PointerBuffer configs = PointerBuffer.allocateDirect(maxConfigs[0]);
-        int[] numConfigs = new int[1];
+        final IntBuffer attrs = Buffers.newDirectIntBuffer(EGLGraphicsConfiguration.GLCapabilities2AttribList(capsChosen));
+        PointerBuffer configs = PointerBuffer.allocateDirect(numConfigs.get(0));
 
-        // 1st choice: get GLCapabilities based on users GLCapabilities setting recommendedIndex as preferred choice
-        if (!EGL.eglChooseConfig(eglDisplay,
-                                 attrs, 0,
-                                 configs, configs.capacity(),
-                                 numConfigs, 0)) {
-            throw new GLException("Graphics configuration selection (eglChooseConfig) failed for "+capsChosen+", error "+toHexString(EGL.eglGetError()));
-        }
-        if (numConfigs[0] > 0) {
-            availableCaps = eglConfigs2GLCaps(glp, eglDisplay, configs, numConfigs[0], winattrmask);
+        // 1st choice: get GLCapabilities based on users GLCapabilities 
+        //             setting recommendedIndex as preferred choice
+        // skipped if nativeVisualID is given
+        if( 0<=nativeVisualID || !EGL.eglChooseConfig(eglDisplay, attrs, configs, configs.capacity(), numConfigs) ) {
+            if(DEBUG) {
+                System.err.println("EGLGraphicsConfiguration.eglChooseConfig: #1 eglChooseConfig: false");
+            }
+        } else  if (numConfigs.get(0) > 0) {
+            availableCaps = eglConfigs2GLCaps(glp, eglDisplay, configs, numConfigs.get(0), winattrmask);
             if(availableCaps.size() > 0) {
                 recommendedEGLConfig =  configs.get(0);
                 recommendedIndex = 0;
                 if (DEBUG) {
-                    System.err.println("!!! eglChooseConfig recommended fbcfg " + toHexString(recommendedEGLConfig) + ", idx " + recommendedIndex);
-                    System.err.println("!!! user  caps " + capsChosen);
-                    System.err.println("!!! fbcfg caps " + availableCaps.get(recommendedIndex));
+                    System.err.println("EGLGraphicsConfiguration.eglChooseConfig: #1 eglChooseConfig: recommended fbcfg " + toHexString(recommendedEGLConfig) + ", idx " + recommendedIndex);
+                    System.err.println("EGLGraphicsConfiguration.eglChooseConfig: #1 fbcfg caps " + availableCaps.get(recommendedIndex));
                 }
             } else if (DEBUG) {
-                System.err.println("!!! eglChooseConfig no caps for recommended fbcfg " + toHexString(configs.get(0)));
-                System.err.println("!!! user  caps " + capsChosen);
+                System.err.println("EGLGraphicsConfiguration.eglChooseConfig: #1 eglChooseConfig: no caps for recommended fbcfg " + toHexString(configs.get(0)));
             }
+        } else if (DEBUG) {
+            System.err.println("EGLGraphicsConfiguration.eglChooseConfig: #1 eglChooseConfig: no configs");
         }
 
         // 2nd choice: get all GLCapabilities available, no preferred recommendedIndex available
@@ -276,31 +279,60 @@ public class EGLGraphicsConfigurationFactory extends GLGraphicsConfigurationFact
             recommendedEGLConfig = -1;
             recommendedIndex = -1;
 
-            if(!EGL.eglGetConfigs(eglDisplay, configs, configs.capacity(), numConfigs, 0)) {
-                throw new GLException("Graphics configuration get all configs (eglGetConfigs) call failed, error "+toHexString(EGL.eglGetError()));
+            if(!EGL.eglGetConfigs(eglDisplay, configs, configs.capacity(), numConfigs)) {
+                throw new GLException("EGLGraphicsConfiguration.eglChooseConfig: #2 Get all configs (eglGetConfigs) call failed, error "+toHexString(EGL.eglGetError()));
             }
-            if (numConfigs[0] > 0) {
-                availableCaps = eglConfigs2GLCaps(glp, eglDisplay, configs, numConfigs[0], winattrmask);
+            if (numConfigs.get(0) > 0) {
+                availableCaps = eglConfigs2GLCaps(glp, eglDisplay, configs, numConfigs.get(0), winattrmask);
             }
         }
 
         if( null == availableCaps || 0 == availableCaps.size() ) {
             if(DEBUG) {
                 // FIXME: this happens on a ATI PC Emulation ..
-                System.err.println("Graphics configuration 1st choice and 2nd choice failed - no configs");
+                System.err.println("EGLGraphicsConfiguration.eglChooseConfig: #2 Graphics configuration 1st choice and 2nd choice failed - no configs");
             }
             return null;
         }
+        
+        if(DEBUG) {
+            System.err.println("EGLGraphicsConfiguration.eglChooseConfig: got configs: "+availableCaps.size());
+            for(int i=0; i<availableCaps.size(); i++) {
+                System.err.println(i+": "+availableCaps.get(i));
+            }
+        }
 
-        int chosenIndex = chooseCapabilities(chooser, capsChosen, availableCaps, recommendedIndex);
+        if(0<=nativeVisualID) {
+            List/*<EGLGLCapabilities>*/ removedCaps = new ArrayList();
+            for(int i=0; i<availableCaps.size(); ) {
+                EGLGLCapabilities ecap = (EGLGLCapabilities) availableCaps.get(i);
+                if(ecap.getNativeVisualID()!=nativeVisualID) {
+                    removedCaps.add(availableCaps.remove(i));
+                } else {
+                    i++;
+                }
+            }
+            if(0==availableCaps.size()) {
+                availableCaps = removedCaps;
+                if(DEBUG) {
+                    System.err.println("EGLGraphicsConfiguration.eglChooseConfig: post filter nativeVisualID ("+nativeVisualID+") no config found, revert to all");
+                }
+            } else if(DEBUG) {
+                System.err.println("EGLGraphicsConfiguration.eglChooseConfig: post filter nativeVisualID ("+nativeVisualID+") got configs: "+availableCaps.size());
+            }
+        }
+
+        final int chosenIndex = chooseCapabilities(chooser, capsChosen, availableCaps, recommendedIndex);
         if ( 0 > chosenIndex ) {
             if (DEBUG) {
-                Thread.dumpStack();
+                System.err.println("EGLGraphicsConfiguration.eglChooseConfig: #2 chooseCapabilities failed");
             }
             return null;
         }
-        EGLGLCapabilities chosenCaps = (EGLGLCapabilities) availableCaps.get(chosenIndex);
-
+        final EGLGLCapabilities chosenCaps = (EGLGLCapabilities) availableCaps.get(chosenIndex);
+        if (DEBUG) {
+            System.err.println("EGLGraphicsConfiguration.eglChooseConfig: X chosen :"+chosenIndex+", eglConfig: "+toHexString(chosenCaps.getEGLConfig())+", "+chosenCaps);
+        }
         return new EGLGraphicsConfiguration(absScreen, chosenCaps, capsRequested, chooser);
     }
 
@@ -331,7 +363,7 @@ public class EGLGraphicsConfigurationFactory extends GLGraphicsConfigurationFact
         }
 
         DefaultGraphicsScreen screen = new DefaultGraphicsScreen(device, 0);
-        EGLGraphicsConfiguration eglConfig = chooseGraphicsConfigurationStatic(capsChosen, capsReq, chooser, screen);
+        EGLGraphicsConfiguration eglConfig = chooseGraphicsConfigurationStatic(capsChosen, capsReq, chooser, screen, -1);
         if (null == eglConfig) {
             throw new GLException("Couldn't create EGLGraphicsConfiguration from "+screen);
         } else if(DEBUG) {

@@ -90,6 +90,7 @@
                                         <li>libxxf86vm-dev</li>
                                         <li>libxinerama-dev</li>
                                         <li>libxrandr-dev</li>
+                                        <li>libxrender-dev</li>
                                         <li>Optional: Your card vendor's proprietary driver</li>
                                     </ul>
                                 </li>
@@ -117,6 +118,7 @@
                                         <li>libXxf86vm-devel</li>
                                         <li>libXinerama-devel</li>
                                         <li>libXrandr-devel</li>
+                                        <li>libXrender-devel</li>
                                         <li>Optional: Your card vendor's proprietary driver</li>
                                     </ul>
                                 </li>
@@ -171,13 +173,13 @@
                     <ol>
                         <li><b>Optain the source code</b> using git:
                             <ul>
-                                <li><a href="http://github.com/sgothel/gluegen">Gluegen Dev GIT Repo</a></li>
-                                <li><a href="http://github.com/sgothel/jogl">JOGL Dev GIT Repo</a></li>
+                                <li><a href="http://jogamp.org/git/?p=gluegen.git">Gluegen Dev GIT Repo</a></li>
+                                <li><a href="http://jogamp.org/git/?p=jogl.git">JOGL Dev GIT Repo</a></li>
                             </ul><br/>
                             It is crucial that you checkout the source code under a common root directory:
                             <pre>
-    /home/dude/projects/jogamp> git clone git://github.com/sgothel/gluegen.git  gluegen
-    /home/dude/projects/jogamp> git clone git://github.com/sgothel/jogl.git jogl
+    /home/dude/projects/jogamp> git clone git://jogamp.org/srv/scm/gluegen.git gluegen
+    /home/dude/projects/jogamp> git clone git://jogamp.org/srv/scm/jogl.git jogl
                             </pre>
                             Now you should have following directory structure:
                             <pre>
@@ -205,7 +207,8 @@
                         </li>
 
                         <li> <b>Build the source tree:</b> <br/>
-                            Open a command shell in the "jogl/make" directory of the source tree and type <code>"ant"</code>.
+                            Open a command shell in the "gluegen/make" directory of the source tree and type <code>"ant"</code>.<br/>
+                            Then open a command shell in the "jogl/make" directory of the source tree and type <code>"ant"</code>.
                             <ul>
                                 <li>
                                     An experimental binding to the high-level <a href="http://developer.nvidia.com/view.asp?PAGE=cg_main">Cg</a>
@@ -217,7 +220,7 @@
 
                         <li> <b>Test your build:</b> <br/> Stay in your command shell in the "jogl/make" directory of the source tree and type <code>"ant junit.run"</code>.</li>
 
-                        <li> <b>Build Javadoc:</b> <br/> Stay in your command shell in the "jogl/make" directory of the source tree and type "<code>ant javadoc"</code>.
+                        <li> <b>Build Javadoc:</b> <br/> Stay in your command shell in the "jogl/make" directory of the source tree and type "<code>ant javadoc.all"</code>.
                             This will produce the end-user documentation for JOGL along with some auxiliary utility packages.
                         </li>
                     </ol>

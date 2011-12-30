@@ -69,6 +69,7 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
   // are unlikely to be supported on Windows anyway
 
   // Support for full-scene antialiasing (FSAA)
+  private String  sampleExtension = DEFAULT_SAMPLE_EXTENSION;
   private boolean sampleBuffers = false;
   private int     numSamples    = 2;
 
@@ -79,8 +80,9 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
 
   /** Creates a GLCapabilities object. All attributes are in a default state.
     * @param glp GLProfile, or null for the default GLProfile
+    * @throws GLException if no profile is given and no default profile is available for the default device.
     */
-  public GLCapabilities(GLProfile glp) {
+  public GLCapabilities(GLProfile glp) throws GLException {
       glProfile = (null!=glp)?glp:GLProfile.getDefault(GLProfile.getDefaultDevice());
   }
 
@@ -110,6 +112,7 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
     hash = ((hash << 5) - hash) + this.accumAlphaBits;
     hash = ((hash << 5) - hash) + ( this.sampleBuffers ? 1 : 0 );
     hash = ((hash << 5) - hash) + this.numSamples;
+    hash = ((hash << 5) - hash) + this.sampleExtension.hashCode();
     hash = ((hash << 5) - hash) + ( this.pbufferFloatingPointBuffers ? 1 : 0 );
     hash = ((hash << 5) - hash) + ( this.pbufferRenderToTexture ? 1 : 0 );
     hash = ((hash << 5) - hash) + ( this.pbufferRenderToTextureRectangle ? 1 : 0 );
@@ -138,7 +141,9 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
                   other.getPbufferRenderToTexture()==pbufferRenderToTexture &&
                   other.getPbufferRenderToTextureRectangle()==pbufferRenderToTextureRectangle;
     if(sampleBuffers) {
-        res = res && other.getNumSamples()==numSamples;
+        res = res &&
+              other.getNumSamples()==numSamples && 
+              other.getSampleExtension().equals(sampleExtension) ;
     }
     return res;
   }
@@ -146,7 +151,7 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
   /** comparing hw/sw, stereo, multisample, stencil, RGBA and depth only */
   public int compareTo(Object o) {
     if ( ! ( o instanceof GLCapabilities ) ) {
-        Class c = (null != o) ? o.getClass() : null ;
+        Class<?> c = (null != o) ? o.getClass() : null ;
         throw new ClassCastException("Not a GLCapabilities object: " + c);
     }
 
@@ -172,6 +177,7 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
     } else if( ms < xms ) {
         return -1;
     }
+    // ignore the sample extension 
 
     if(stencilBits > caps.stencilBits) {
         return 1;
@@ -193,7 +199,6 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
     return 0; // they are equal: hw/sw, stereo, multisample, stencil, RGBA and depth
   }
 
-  /** Returns the GL profile you desire or used by the drawable. */
   public GLProfile getGLProfile() {
     return glProfile;
   }
@@ -203,26 +208,25 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
     glProfile=profile;
   }
 
-  /** Indicates whether pbuffer is used/requested. */
   public boolean isPBuffer() {
     return pbuffer;
   }
 
   /** 
    * Enables or disables pbuffer usage.<br>
-   * If enabled, onscreen := false.
+   * If enabled this method also invokes {@link #setOnscreen(int) setOnscreen(false)}<br>
    * Defaults to false.
    */
-  public void setPBuffer(boolean onOrOff) {
-    if(onOrOff) {
+  public void setPBuffer(boolean enable) {
+    if(enable) {
       setOnscreen(false);
     }
-    pbuffer = onOrOff;
+    pbuffer = enable;
   }
 
   /**
    * Sets whether the drawable surface supports onscreen.<br>
-   * If enabled, pbuffer := false.<br>
+   * If enabled this method also invokes {@link #setPBuffer(int) setPBuffer(false)}<br>
    * Defaults to true.
   */
   public void setOnscreen(boolean onscreen) {
@@ -232,37 +236,33 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
     super.setOnscreen(onscreen);
   }
 
-  /** Indicates whether double-buffering is enabled. */
   public boolean getDoubleBuffered() {
     return doubleBuffered;
   }
 
   /** Enables or disables double buffering. */
-  public void setDoubleBuffered(boolean onOrOff) {
-    doubleBuffered = onOrOff;
+  public void setDoubleBuffered(boolean enable) {
+    doubleBuffered = enable;
   }
 
-  /** Indicates whether stereo is enabled. */
   public boolean getStereo() {
     return stereo;
   }
   
   /** Enables or disables stereo viewing. */
-  public void setStereo(boolean onOrOff) {
-    stereo = onOrOff;
+  public void setStereo(boolean enable) {
+    stereo = enable;
   }
 
-  /** Indicates whether hardware acceleration is enabled. */
   public boolean getHardwareAccelerated() {
     return hardwareAccelerated;
   }
   
   /** Enables or disables hardware acceleration. */
-  public void setHardwareAccelerated(boolean onOrOff) {
-    hardwareAccelerated = onOrOff;
+  public void setHardwareAccelerated(boolean enable) {
+    hardwareAccelerated = enable;
   }
 
-  /** Returns the number of bits requested for the depth buffer. */
   public int getDepthBits() {
     return depthBits;
   }
@@ -272,7 +272,6 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
     this.depthBits = depthBits;
   }
   
-  /** Returns the number of bits requested for the stencil buffer. */
   public int getStencilBits() {
     return stencilBits;
   }
@@ -282,10 +281,6 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
     this.stencilBits = stencilBits;
   }
   
-  /** Returns the number of bits requested for the accumulation
-      buffer's red component. On some systems only the accumulation
-      buffer depth, which is the sum of the red, green, and blue bits,
-      is considered. */
   public int getAccumRedBits() {
     return accumRedBits;
   }
@@ -298,10 +293,6 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
     this.accumRedBits = accumRedBits;
   }
 
-  /** Returns the number of bits requested for the accumulation
-      buffer's green component. On some systems only the accumulation
-      buffer depth, which is the sum of the red, green, and blue bits,
-      is considered. */
   public int getAccumGreenBits() {
     return accumGreenBits;
   }
@@ -314,10 +305,6 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
     this.accumGreenBits = accumGreenBits;
   }
 
-  /** Returns the number of bits requested for the accumulation
-      buffer's blue component. On some systems only the accumulation
-      buffer depth, which is the sum of the red, green, and blue bits,
-      is considered. */
   public int getAccumBlueBits() {
     return accumBlueBits;
   }
@@ -330,10 +317,6 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
     this.accumBlueBits = accumBlueBits;
   }
 
-  /** Returns the number of bits requested for the accumulation
-      buffer's alpha component. On some systems only the accumulation
-      buffer depth, which is the sum of the red, green, and blue bits,
-      is considered. */
   public int getAccumAlphaBits() {
     return accumAlphaBits;
   }
@@ -346,16 +329,33 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
     this.accumAlphaBits = accumAlphaBits;
   }
 
-  /** Indicates whether sample buffers for full-scene antialiasing
-      (FSAA) should be allocated for this drawable. Defaults to
-      false. */
-  public void setSampleBuffers(boolean onOrOff) {
-    sampleBuffers = onOrOff;
+  /**
+   * Sets the desired extension for full-scene antialiasing
+   * (FSAA), default is {@link #DEFAULT_SAMPLE_EXTENSION}.
+   */
+  public void setSampleExtension(String se) { 
+      sampleExtension = se; 
+  }
+    
+  public String getSampleExtension() { 
+      return sampleExtension; 
+  }
+  
+  /**
+   * Defaults to false.<br>
+   * Indicates whether sample buffers for full-scene antialiasing
+   * (FSAA) should be allocated for this drawable.<br>
+   * Mind that this requires the alpha component.<br>
+   * If enabled this method also invokes {@link #setAlphaBits(int) setAlphaBits(1)}
+   * if {@link #getAlphaBits()} == 0.<br>
+   */
+  public void setSampleBuffers(boolean enable) {
+    sampleBuffers = enable;
+    if(sampleBuffers && getAlphaBits()==0) {
+        setAlphaBits(1);
+    }        
   }
 
-  /** Returns whether sample buffers for full-scene antialiasing
-      (FSAA) should be allocated for this drawable. Defaults to
-      false. */
   public boolean getSampleBuffers() {
     return sampleBuffers;
   }
@@ -366,32 +366,26 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
     this.numSamples = numSamples;
   }
 
-  /** Returns the number of sample buffers to be allocated if sample
-      buffers are enabled. Defaults to 2. */
   public int getNumSamples() {
     return numSamples;
   }
 
   /** For pbuffers only, indicates whether floating-point buffers
       should be used if available. Defaults to false. */
-  public void setPbufferFloatingPointBuffers(boolean onOrOff) {
-    pbufferFloatingPointBuffers = onOrOff;
+  public void setPbufferFloatingPointBuffers(boolean enable) {
+    pbufferFloatingPointBuffers = enable;
   }
 
-  /** For pbuffers only, returns whether floating-point buffers should
-      be used if available. Defaults to false. */
   public boolean getPbufferFloatingPointBuffers() {
     return pbufferFloatingPointBuffers;
   }
 
   /** For pbuffers only, indicates whether the render-to-texture
       extension should be used if available.  Defaults to false. */
-  public void setPbufferRenderToTexture(boolean onOrOff) {
-    pbufferRenderToTexture = onOrOff;
+  public void setPbufferRenderToTexture(boolean enable) {
+    pbufferRenderToTexture = enable;
   }
 
-  /** For pbuffers only, returns whether the render-to-texture
-      extension should be used if available.  Defaults to false. */
   public boolean getPbufferRenderToTexture() {
     return pbufferRenderToTexture;
   }
@@ -399,12 +393,10 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
   /** For pbuffers only, indicates whether the
       render-to-texture-rectangle extension should be used if
       available. Defaults to false. */
-  public void setPbufferRenderToTextureRectangle(boolean onOrOff) {
-    pbufferRenderToTextureRectangle = onOrOff;
+  public void setPbufferRenderToTextureRectangle(boolean enable) {
+    pbufferRenderToTextureRectangle = enable;
   }
 
-  /** For pbuffers only, returns whether the render-to-texture
-      extension should be used. Defaults to false. */
   public boolean getPbufferRenderToTextureRectangle() {
     return pbufferRenderToTextureRectangle;
   }
@@ -420,6 +412,9 @@ public class GLCapabilities extends Capabilities implements Cloneable, GLCapabil
 
     sink.append(", accum-rgba ").append(accumRedBits).append("/").append(accumGreenBits).append("/").append(accumBlueBits).append("/").append(accumAlphaBits);
     sink.append(", dp/st/ms: ").append(depthBits).append("/").append(stencilBits).append("/").append(samples);
+    if(samples>0) {
+        sink.append(", sample-ext ").append(sampleExtension);
+    }
     if(doubleBuffered) {
         sink.append(", dbl");
     } else {

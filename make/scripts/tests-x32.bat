@@ -3,7 +3,7 @@ REM scripts\java-win32-dbg.bat com.jogamp.newt.opengl.GLWindow
 REM scripts\java-win32.bat com.jogamp.opengl.test.junit.jogl.offscreen.TestOffscreen01GLPBufferNEWT -time 5000
 REM scripts\java-win32.bat com.jogamp.opengl.test.junit.jogl.offscreen.TestOffscreen02BitmapNEWT -time 5000
 REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.jogl.acore.TestGLProfile01NEWT
-REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.jogl.demos.gl2.gears.newt.TestGearsNEWT -time 30000
+REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.jogl.demos.gl2.newt.TestGearsNEWT -time 30000
 REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.jogl.newt.TestSwingAWTRobotUsageBeforeJOGLInitBug411
 REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.jogl.glsl.TestTransformFeedbackVaryingsBug407NEWT
 REM scripts\java-win32.bat com.jogamp.opengl.test.junit.jogl.glsl.TestGLSLSimple01NEWT -time 2000
@@ -18,7 +18,7 @@ REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.newt.TestGLWindows01
 REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.newt.TestGLWindows02NEWTAnimated
 REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.newt.parenting.TestParenting01NEWT
 REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.newt.TestFocus02SwingAWTRobot
-REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.newt.TestFocus01SwingAWTRobot
+scripts\java-win32.bat com.jogamp.opengl.test.junit.newt.TestFocus01SwingAWTRobot
 REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.nativewindow.TestRecursiveToolkitLockCORE
 REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.newt.parenting.TestParenting03AWT -time 100000
 
@@ -38,5 +38,9 @@ REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.jogl.swt.TestSWT01GL
 REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.jogl.swt.TestSWT02GLn %1 %2 %3 %4
 REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.jogl.swt.TestSWTAWT01GLn $*
 
-scripts\java-win32.bat com.jogamp.opengl.test.junit.jogl.acore.TestGLDebug00NEWT $*
+REM scripts\java-win32.bat com.jogamp.opengl.test.junit.jogl.acore.TestGLDebug00NEWT $*
 REM scripts\java-win32-dbg.bat com.jogamp.opengl.test.junit.jogl.acore.TestGLDebug01NEWT $*
+
+REM scripts\java-win32.bat com.jogamp.opengl.test.junit.jogl.glsl.TestRulerNEWT01
+REM scripts\java-win32.bat com.jogamp.opengl.test.junit.jogl.glsl.TestFBOMRTNEWT01
+

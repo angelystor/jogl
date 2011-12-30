@@ -38,20 +38,17 @@
 package jogamp.nativewindow.jawt.x11;
 
 import javax.media.nativewindow.AbstractGraphicsConfiguration;
-import javax.media.nativewindow.AbstractGraphicsDevice;
-import javax.media.nativewindow.AbstractGraphicsScreen;
 import javax.media.nativewindow.NativeWindow;
 import javax.media.nativewindow.NativeWindowException;
-import javax.media.nativewindow.NativeWindowFactory;
-import javax.media.nativewindow.awt.AWTGraphicsDevice;
 import javax.media.nativewindow.util.Point;
 
 import jogamp.nativewindow.jawt.JAWT;
 import jogamp.nativewindow.jawt.JAWTFactory;
+import jogamp.nativewindow.jawt.JAWTUtil;
 import jogamp.nativewindow.jawt.JAWTWindow;
 import jogamp.nativewindow.jawt.JAWT_DrawingSurface;
 import jogamp.nativewindow.jawt.JAWT_DrawingSurfaceInfo;
-import jogamp.nativewindow.x11.X11Util;
+import jogamp.nativewindow.x11.X11Lib;
 
 public class X11JAWTWindow extends JAWTWindow {
 
@@ -59,36 +56,22 @@ public class X11JAWTWindow extends JAWTWindow {
     super(comp, config);
   }
 
-  protected void validateNative() throws NativeWindowException {
-    AWTGraphicsDevice awtDevice = (AWTGraphicsDevice) config.getScreen().getDevice();
+  protected void invalidateNative() { }
 
-    if(awtDevice.getHandle() != 0) {
-        // subtype and handle set already, done
-        return;
-    }
-
-    long displayHandle = 0;
-    
-    // first try a pre-existing attached native configuration, ie native X11GraphicsDevice
-    AbstractGraphicsConfiguration aconfig = (null!=config) ? config.getNativeGraphicsConfiguration() : null;
-    AbstractGraphicsScreen ascreen = (null!=aconfig) ? aconfig.getScreen() : null;
-    AbstractGraphicsDevice adevice = (null!=ascreen) ? ascreen.getDevice() : null; // X11GraphicsDevice
-    if(null!=adevice) {
-        displayHandle = adevice.getHandle();
-    }
-
-    if(0 == displayHandle) {
-        displayHandle = X11SunJDKReflection.graphicsDeviceGetDisplay(awtDevice.getGraphicsDevice());
-    }
-    if(0==displayHandle) {
-        throw new InternalError("X11JAWTWindow: No X11 Display handle available");
-    }
-    awtDevice.setSubType(NativeWindowFactory.TYPE_X11, displayHandle);
+  protected void attachSurfaceLayerImpl(final long layerHandle) {
+      throw new UnsupportedOperationException("offscreen layer not supported");
   }
-
+  protected void detachSurfaceLayerImpl(final long layerHandle) {
+      throw new UnsupportedOperationException("offscreen layer not supported");
+  }
+  
+  protected JAWT fetchJAWTImpl() throws NativeWindowException {
+      return JAWTUtil.getJAWT(false); // no offscreen
+  }
+    
   protected int lockSurfaceImpl() throws NativeWindowException {
     int ret = NativeWindow.LOCK_SUCCESS;
-    ds = JAWT.getJAWT().GetDrawingSurface(component);
+    ds = getJAWT().GetDrawingSurface(component);
     if (ds == null) {
       // Widget not yet realized
       unlockSurfaceImpl();
@@ -113,7 +96,8 @@ public class X11JAWTWindow extends JAWTWindow {
       unlockSurfaceImpl();
       return LOCK_SURFACE_NOT_READY;
     }
-    x11dsi = (JAWT_X11DrawingSurfaceInfo) dsi.platformInfo();
+    updateBounds(dsi.getBounds());
+    x11dsi = (JAWT_X11DrawingSurfaceInfo) dsi.platformInfo(getJAWT());
     if (x11dsi == null) {
       unlockSurfaceImpl();
       return LOCK_SURFACE_NOT_READY;
@@ -122,8 +106,6 @@ public class X11JAWTWindow extends JAWTWindow {
     if (drawable == 0) {
       unlockSurfaceImpl();
       return LOCK_SURFACE_NOT_READY;
-    } else {
-      updateBounds(dsi.getBounds());
     }
     return ret;
   }
@@ -136,15 +118,15 @@ public class X11JAWTWindow extends JAWTWindow {
         if (dsLocked) {
             ds.Unlock();
         }
-        JAWT.getJAWT().FreeDrawingSurface(ds);
+        getJAWT().FreeDrawingSurface(ds);
     }
     ds = null;
     dsi = null;
     x11dsi = null;
   }
 
-  protected Point getLocationOnScreenImpl(int x, int y) {
-    return X11Util.GetRelativeLocation( getDisplayHandle(), getScreenIndex(), getWindowHandle(), 0 /*root win*/, x, y);
+  protected Point getLocationOnScreenNativeImpl(int x, int y) {
+    return X11Lib.GetRelativeLocation( getDisplayHandle(), getScreenIndex(), getWindowHandle(), 0 /*root win*/, x, y);
   }
   
   // Variables for lockSurface/unlockSurface

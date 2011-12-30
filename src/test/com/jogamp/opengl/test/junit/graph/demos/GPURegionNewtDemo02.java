@@ -52,7 +52,6 @@ public class GPURegionNewtDemo02 {
     static final boolean TRACE = false;
     
     public static void main(String[] args) {
-        GLProfile.initSingleton(true);
         GLProfile glp = GLProfile.getGL2ES2();
         GLCapabilities caps = new GLCapabilities(glp);
         caps.setAlphaBits(4);               
@@ -64,7 +63,7 @@ public class GPURegionNewtDemo02 {
         window.setTitle("GPU Curve Region Newt Demo 02 - vbaa1 msaa0");
                 
         RenderState rs = RenderState.createRenderState(new ShaderState(), SVertex.factory());
-        GPURegionGLListener02  regionGLListener = new GPURegionGLListener02 (rs, Region.TWO_PASS_RENDERING_BIT|Region.VARIABLE_CURVE_WEIGHT_BIT, 1140, DEBUG, TRACE); 
+        GPURegionGLListener02  regionGLListener = new GPURegionGLListener02 (rs, Region.VBAA_RENDERING_BIT|Region.VARIABLE_CURVE_WEIGHT_BIT, 1140, DEBUG, TRACE); 
         regionGLListener.attachInputListenerTo(window);                
         window.addGLEventListener(regionGLListener);
              

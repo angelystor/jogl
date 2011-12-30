@@ -303,8 +303,8 @@ public class ImmModeSink {
 
         this.sealed=false;
         this.sealedGL=false;
-        this.mode = -1;
-        this.modeOrig = -1;
+        this.mode = 0;
+        this.modeOrig = 0;
         this.bufferEnabled=false;
         this.bufferWritten=false;
     }
@@ -315,7 +315,7 @@ public class ImmModeSink {
     }
 
     protected void checkSeal(boolean test) throws GLException {
-        if(mode<0) {
+        if(0==mode) {
                 throw new GLException("No mode set yet, call glBegin(mode) first:\n\t"+this); 
         }
         if(sealed!=test) {
@@ -642,8 +642,8 @@ public class ImmModeSink {
         }
         rewind();
 
-        this.mode = -1;
-        this.modeOrig = -1;
+        this.mode = 0;
+        this.modeOrig = 0;
         this.sealed=false;
         this.bufferEnabled=false;
         this.bufferWritten=false;
@@ -863,25 +863,25 @@ public class ImmModeSink {
 
         if(vComps>0) {
             vArrayData = GLArrayDataWrapper.createFixed(GLPointerFunc.GL_VERTEX_ARRAY, vComps, vDataType, false, 0,
-                                                        vertexArray, 0, vOffset, GL.GL_STATIC_DRAW);
+                                                        vertexArray, 0, vOffset, GL.GL_STATIC_DRAW, GL.GL_ARRAY_BUFFER);
         } else {
             vArrayData = null;
         }
         if(cComps>0) {
             cArrayData = GLArrayDataWrapper.createFixed(GLPointerFunc.GL_COLOR_ARRAY, cComps, cDataType, false, 0,
-                                                        colorArray, 0, cOffset, GL.GL_STATIC_DRAW);
+                                                        colorArray, 0, cOffset, GL.GL_STATIC_DRAW, GL.GL_ARRAY_BUFFER);
         } else {
             cArrayData = null;
         }
         if(nComps>0) {
             nArrayData = GLArrayDataWrapper.createFixed(GLPointerFunc.GL_NORMAL_ARRAY, nComps, nDataType, false, 0,
-                                                        normalArray, 0, nOffset, GL.GL_STATIC_DRAW);
+                                                        normalArray, 0, nOffset, GL.GL_STATIC_DRAW, GL.GL_ARRAY_BUFFER);
         } else {
             nArrayData = null;
         }
         if(tComps>0) {
             tArrayData = GLArrayDataWrapper.createFixed(GLPointerFunc.GL_TEXTURE_COORD_ARRAY, tComps, tDataType, false, 0,
-                                                        textCoordArray, 0, tOffset, GL.GL_STATIC_DRAW);
+                                                        textCoordArray, 0, tOffset, GL.GL_STATIC_DRAW, GL.GL_ARRAY_BUFFER);
         } else {
             tArrayData = null;
         }

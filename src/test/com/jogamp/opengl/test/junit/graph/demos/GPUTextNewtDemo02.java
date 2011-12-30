@@ -57,7 +57,6 @@ public class GPUTextNewtDemo02 {
     static final boolean TRACE = false;
     
     public static void main(String[] args) {
-        GLProfile.initSingleton(true);
         GLProfile glp = GLProfile.getGL2ES2();
         
         GLCapabilities caps = new GLCapabilities(glp);
@@ -71,9 +70,8 @@ public class GPUTextNewtDemo02 {
         window.setTitle("GPU Text Newt Demo 02 - vbaa1 msaa0");
         
         RenderState rs = RenderState.createRenderState(new ShaderState(), SVertex.factory());
-        GPUTextGLListener0A textGLListener = new GPUTextGLListener0A(rs, Region.TWO_PASS_RENDERING_BIT, window.getWidth()*3, DEBUG, TRACE);
+        GPUTextGLListener0A textGLListener = new GPUTextGLListener0A(rs, Region.VBAA_RENDERING_BIT, window.getWidth()*3, DEBUG, TRACE);
         // ((TextRenderer)textGLListener.getRenderer()).setCacheLimit(32);
-        textGLListener.attachInputListenerTo(window);
         window.addGLEventListener(textGLListener);
         
         window.setUpdateFPSFrames(FPSCounter.DEFAULT_FRAMES_PER_INTERVAL, System.err);        

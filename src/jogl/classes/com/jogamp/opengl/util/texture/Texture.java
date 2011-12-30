@@ -43,7 +43,6 @@ import javax.media.opengl.*;
 import javax.media.opengl.glu.*;
 import javax.media.nativewindow.NativeWindowFactory;
 import jogamp.opengl.*;
-import com.jogamp.opengl.util.texture.*;
 import com.jogamp.opengl.util.texture.spi.*;
 
 /**
@@ -270,7 +269,7 @@ public class Texture {
      * @throws GLException if any OpenGL-related errors occurred
      */
     public void destroy(GL gl) throws GLException {
-        if(0<texID) {
+        if(0!=texID) {
             gl.glDeleteTextures(1, new int[] {texID}, 0);
             texID = 0;
         }
@@ -1039,26 +1038,24 @@ public class Texture {
     }
 
     private boolean validateTexID(GL gl, boolean throwException) {
-        if( 0 >= texID ) {
+        if( 0 == texID ) {
             if( null != gl ) {
                 int[] tmp = new int[1];
                 gl.glGenTextures(1, tmp, 0);
                 texID = tmp[0];
-                if ( 0 >= texID && throwException ) {
+                if ( 0 == texID && throwException ) {
                     throw new GLException("Create texture ID invalid: texID "+texID+", glerr 0x"+Integer.toHexString(gl.glGetError()));
                 }
             } else if ( throwException ) {
                 throw new GLException("No GL context given, can't create texture ID");
             }
         }
-        return 0 < texID;
+        return 0 != texID;
     }
 
     // Helper routines for disabling certain codepaths
     private static boolean haveNPOT(GL gl) {
-        return (!disableNPOT &&
-                ( gl.isGLES2() ||
-                  gl.isExtensionAvailable("GL_ARB_texture_non_power_of_two") ) );
+        return !disableNPOT && gl.isNPOTTextureAvailable();
     }
 
     private static boolean haveTexRect(GL gl) {

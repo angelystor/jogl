@@ -56,7 +56,7 @@ public class TestGLProfile01NEWT extends UITestCase {
         System.err.println(NewtVersion.getInstance());
 
         GLDrawableFactory factory = GLDrawableFactory.getFactory(GLProfile.getDefault());
-        List/*<GLCapabilitiesImmutable>*/ availCaps = factory.getAvailableCapabilities(null);
+        List<GLCapabilitiesImmutable> availCaps = factory.getAvailableCapabilities(null);
         for(int i=0; i<availCaps.size(); i++) {
             System.err.println(availCaps.get(i));
         }
@@ -65,25 +65,28 @@ public class TestGLProfile01NEWT extends UITestCase {
     @Test
     public void test01GLProfileDefault() throws InterruptedException {
         System.out.println("GLProfile "+GLProfile.glAvailabilityToString());
+        System.out.println("GLProfile.getDefaultDesktopDevice(): "+GLProfile.getDefaultDesktopDevice());
+        System.out.println("GLProfile.getDefaultEGLDevice(): "+GLProfile.getDefaultEGLDevice());
+        System.out.println("GLProfile.getDefaultDevice(): "+GLProfile.getDefaultDevice());        
         GLProfile glp = GLProfile.getDefault();
         System.out.println("GLProfile.getDefault(): "+glp);
         if(glp.getName().equals(GLProfile.GL4bc)) {
-            Assert.assertTrue(GLProfile.isGL4bcAvailable());
-            Assert.assertTrue(GLProfile.isGL3bcAvailable());
-            Assert.assertTrue(GLProfile.isGL2Available());
-            Assert.assertTrue(GLProfile.isGL2ES1Available());
-            Assert.assertTrue(GLProfile.isGL2ES2Available());
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL4bc));
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL3bc));
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2));
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2ES1));
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2ES2));
         } else if(glp.getName().equals(GLProfile.GL3bc)) {
-            Assert.assertTrue(GLProfile.isGL3bcAvailable());
-            Assert.assertTrue(GLProfile.isGL2Available());
-            Assert.assertTrue(GLProfile.isGL2ES1Available());
-            Assert.assertTrue(GLProfile.isGL2ES2Available());
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL3bc));
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2));
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2ES1));
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2ES2));
         } else if(glp.getName().equals(GLProfile.GL2)) {
-            Assert.assertTrue(GLProfile.isGL2Available());
-            Assert.assertTrue(GLProfile.isGL2ES1Available());
-            Assert.assertTrue(GLProfile.isGL2ES2Available());
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2));
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2ES1));
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2ES2));
         } else if(glp.getName().equals(GLProfile.GL2ES1)) {
-            Assert.assertTrue(GLProfile.isGL2ES1Available());
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2ES1));
         }
         dumpVersion(glp);
     }
@@ -100,29 +103,21 @@ public class TestGLProfile01NEWT extends UITestCase {
         GLProfile glp = GLProfile.getMaxProgrammable();
         System.out.println("GLProfile.getMaxProgrammable(): "+glp);
         if(glp.getName().equals(GLProfile.GL4)) {
-            Assert.assertTrue(GLProfile.isGL4Available());
-            Assert.assertTrue(GLProfile.isGL3Available());
-            Assert.assertTrue(GLProfile.isGL2Available());
-            Assert.assertTrue(GLProfile.isGL2ES1Available());
-            Assert.assertTrue(GLProfile.isGL2ES2Available());
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL4));
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL3));
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2ES2));
         } else if(glp.getName().equals(GLProfile.GL3)) {
-            Assert.assertTrue(GLProfile.isGL3Available());
-            Assert.assertTrue(GLProfile.isGL2Available());
-            Assert.assertTrue(GLProfile.isGL2ES1Available());
-            Assert.assertTrue(GLProfile.isGL2ES2Available());
-        } else if(glp.getName().equals(GLProfile.GL2)) {
-            Assert.assertTrue(GLProfile.isGL2Available());
-            Assert.assertTrue(GLProfile.isGL2ES1Available());
-            Assert.assertTrue(GLProfile.isGL2ES2Available());
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL3));
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2ES2));
         } else if(glp.getName().equals(GLProfile.GL2ES2)) {
-            Assert.assertTrue(GLProfile.isGL2ES2Available());
+            Assert.assertTrue(GLProfile.isAvailable(GLProfile.GL2ES2));
         }
         dumpVersion(glp);
     }
 
     @Test
     public void test04GLProfileGL2ES1() throws InterruptedException {
-        if(!GLProfile.isGL2ES1Available()) {
+        if(!GLProfile.isAvailable(GLProfile.GL2ES1)) {
             System.out.println("GLProfile GL2ES1 n/a");
             return;
         }
@@ -133,7 +128,7 @@ public class TestGLProfile01NEWT extends UITestCase {
 
     @Test
     public void test05GLProfileGL2ES2() throws InterruptedException {
-        if(!GLProfile.isGL2ES2Available()) {
+        if(!GLProfile.isAvailable(GLProfile.GL2ES2)) {
             System.out.println("GLProfile GL2ES2 n/a");
             return;
         }
@@ -141,7 +136,7 @@ public class TestGLProfile01NEWT extends UITestCase {
         System.out.println("GLProfile GL2ES2: "+glp);
         dumpVersion(glp);
     }
-
+    
     protected void dumpVersion(GLProfile glp) throws InterruptedException {
         GLCapabilities caps = new GLCapabilities(glp);
         GLWindow glWindow = GLWindow.create(caps);

@@ -40,15 +40,16 @@
 package jogamp.nativewindow.jawt;
 
 import javax.media.nativewindow.NativeWindowFactory;
+
 import jogamp.nativewindow.NWJNILibLoader;
 
 import java.awt.Toolkit;
 import java.security.AccessController;
 import java.security.PrivilegedAction;
 
-public class JAWTJNILibLoader extends NWJNILibLoader {
-  public static void loadAWTImpl() {
-    AccessController.doPrivileged(new PrivilegedAction() {
+public class JAWTJNILibLoader extends NWJNILibLoader {  
+  static {
+    AccessController.doPrivileged(new PrivilegedAction<Object>() {
       public Object run() {
         // Make sure that awt.dll is loaded before loading jawt.dll. Otherwise
         // a Dialog with "awt.dll not found" might pop up.
@@ -73,4 +74,9 @@ public class JAWTJNILibLoader extends NWJNILibLoader {
       }
     });
   }
+  
+  public static void initSingleton() {
+      // just exist to ensure static init has been run      
+  }
+  
 }

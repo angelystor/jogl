@@ -33,10 +33,22 @@
 
 package jogamp.nativewindow.x11;
 
-import javax.media.nativewindow.*;
-import javax.media.nativewindow.x11.*;
+import javax.media.nativewindow.AbstractGraphicsConfiguration;
+import javax.media.nativewindow.AbstractGraphicsScreen;
+import javax.media.nativewindow.CapabilitiesChooser;
+import javax.media.nativewindow.CapabilitiesImmutable;
+import javax.media.nativewindow.GraphicsConfigurationFactory;
+import javax.media.nativewindow.NativeWindowException;
+import javax.media.nativewindow.x11.X11GraphicsConfiguration;
+import javax.media.nativewindow.x11.X11GraphicsScreen;
 
 public class X11GraphicsConfigurationFactory extends GraphicsConfigurationFactory {
+    public static void registerFactory() {
+        GraphicsConfigurationFactory.registerFactory(javax.media.nativewindow.x11.X11GraphicsDevice.class, new X11GraphicsConfigurationFactory());
+    }    
+    private X11GraphicsConfigurationFactory() {
+    }
+    
     protected AbstractGraphicsConfiguration chooseGraphicsConfigurationImpl(
         CapabilitiesImmutable  capsChosen, CapabilitiesImmutable capsRequested, CapabilitiesChooser chooser, AbstractGraphicsScreen screen)
         throws IllegalArgumentException, NativeWindowException {
@@ -55,7 +67,7 @@ public class X11GraphicsConfigurationFactory extends GraphicsConfigurationFactor
         int num[] = { -1 };
         long display = screen.getDevice().getHandle();
 
-        XVisualInfo[] xvis = X11Util.XGetVisualInfo(display, X11Lib.VisualIDMask|X11Lib.VisualScreenMask, xvi_temp, num, 0);
+        XVisualInfo[] xvis = X11Lib.XGetVisualInfo(display, X11Lib.VisualIDMask|X11Lib.VisualScreenMask, xvi_temp, num, 0);
 
         if(xvis==null || num[0]<1) {
             return null;
@@ -81,7 +93,7 @@ public class X11GraphicsConfigurationFactory extends GraphicsConfigurationFactor
         vinfo_template.setC_class(c_class);
         long display = screen.getDevice().getHandle();
 
-        XVisualInfo[] vinfos = X11Util.XGetVisualInfo(display, X11Lib.VisualScreenMask, vinfo_template, num, 0);
+        XVisualInfo[] vinfos = X11Lib.XGetVisualInfo(display, X11Lib.VisualScreenMask, vinfo_template, num, 0);
         XVisualInfo best=null;
         int rdepth = capabilities.getRedBits() + capabilities.getGreenBits() + capabilities.getBlueBits() + capabilities.getAlphaBits();
         for (int i = 0; vinfos!=null && i < num[0]; i++) {

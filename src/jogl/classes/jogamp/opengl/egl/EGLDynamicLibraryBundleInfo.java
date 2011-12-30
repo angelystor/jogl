@@ -28,13 +28,11 @@
  
 package jogamp.opengl.egl;
 
-import com.jogamp.common.os.DynamicLookupHelper;
-import com.jogamp.common.os.NativeLibrary;
+import com.jogamp.common.os.AndroidVersion;
+
 import java.util.*;
-import javax.media.nativewindow.*;
-import javax.media.opengl.*;
+
 import jogamp.opengl.*;
-import java.security.*;
 
 /**
  * Abstract implementation of the DynamicLookupHelper for EGL,
@@ -43,6 +41,12 @@ import java.security.*;
  * Currently two implementations exist, one for ES1 and one for ES2.
  */
 public abstract class EGLDynamicLibraryBundleInfo extends GLDynamicLibraryBundleInfo {
+    static List<String> glueLibNames;
+    static {
+        glueLibNames = new ArrayList<String>();
+        glueLibNames.addAll(GLDynamicLibraryBundleInfo.getGlueLibNamesPreload());
+        glueLibNames.add("jogl_mobile");
+    }
 
     protected EGLDynamicLibraryBundleInfo() {
         super();
@@ -50,24 +54,45 @@ public abstract class EGLDynamicLibraryBundleInfo extends GLDynamicLibraryBundle
 
     /** Might be a desktop GL library, and might need to allow symbol access to subsequent libs */
     public boolean shallLinkGlobal() { return true; }
-
-    public final List getToolGetProcAddressFuncNameList() {
-        List res = new ArrayList();
+    
+    public boolean shallLookupGlobal() {
+        if ( AndroidVersion.isAvailable ) {
+            // Android requires global symbol lookup
+            return true;
+        }
+        // default behavior for other platforms
+        return false;
+    }
+    
+    public final List<String> getToolGetProcAddressFuncNameList() {
+        List<String> res = new ArrayList<String>();
         res.add("eglGetProcAddress");
         return res;
     }
 
-    public final long toolDynamicLookupFunction(long toolGetProcAddressHandle, String funcName) {
+    public final long toolGetProcAddress(long toolGetProcAddressHandle, String funcName) {
         return EGL.eglGetProcAddress(toolGetProcAddressHandle, funcName);
     }
 
-    protected List/*<String>*/ getEGLLibNamesList() {
-        List/*<String>*/ eglLibNames = new ArrayList();
-        // EGL
-        eglLibNames.add("EGL");
+    public final boolean useToolGetProcAdressFirst(String funcName) {
+        return false; // JAU / FIXME funcName.startsWith("egl");
+    }
+    
+    protected List<String> getEGLLibNamesList() {
+        List<String> eglLibNames = new ArrayList<String>();
+        
+        // try default generic names first 
+        eglLibNames.add("EGL");        
         // for windows distributions using the 'unlike' lib prefix, 
         // where our tool does not add it.
         eglLibNames.add("libEGL");
+        // this is the default EGL lib name, according to the spec 
+        eglLibNames.add("libEGL.so.1");
+        
         return eglLibNames;
     }
+    
+    public final List<String> getGlueLibNames() {
+        return glueLibNames;
+    }    
 }

@@ -28,8 +28,12 @@
 package jogamp.nativewindow.jawt.x11;
 
 import jogamp.nativewindow.jawt.*;
+import jogamp.nativewindow.x11.X11Lib;
 import jogamp.nativewindow.x11.X11Util;
 import javax.media.nativewindow.ToolkitLock;
+
+import com.jogamp.common.util.locks.LockFactory;
+import com.jogamp.common.util.locks.RecursiveLock;
 
 /**
  * Implementing a recursive {@link javax.media.nativewindow.ToolkitLock}
@@ -41,20 +45,32 @@ import javax.media.nativewindow.ToolkitLock;
  */
 public class X11JAWTToolkitLock implements ToolkitLock {
     long displayHandle;
+    RecursiveLock lock;
 
     public X11JAWTToolkitLock(long displayHandle) {
         this.displayHandle = displayHandle;
+        if(!X11Util.isNativeLockAvailable()) {
+            lock = LockFactory.createRecursiveLock();
+        }
     }
 
     public final void lock() {
-        if(TRACE_LOCK) { System.err.println("X11JAWTToolkitLock.lock()"); }
+        if(TRACE_LOCK) { System.err.println("X11JAWTToolkitLock.lock() - native: "+(null==lock)); }
         JAWTUtil.lockToolkit();
-        X11Util.XLockDisplay(displayHandle);
+        if(null == lock) {
+            X11Lib.XLockDisplay(displayHandle);
+        } else {
+            lock.lock();
+        }
     }
 
     public final void unlock() {
-        if(TRACE_LOCK) { System.err.println("X11JAWTToolkitLock.unlock()"); }
-        X11Util.XUnlockDisplay(displayHandle);
+        if(TRACE_LOCK) { System.err.println("X11JAWTToolkitLock.unlock() - native: "+(null==lock)); }
+        if(null == lock) {
+            X11Lib.XUnlockDisplay(displayHandle);
+        } else {
+            lock.unlock();
+        }
         JAWTUtil.unlockToolkit();
     }
 }

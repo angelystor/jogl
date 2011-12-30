@@ -29,12 +29,12 @@
 package com.jogamp.opengl.test.junit.newt;
 
 import java.io.IOException;
-import javax.media.nativewindow.NativeWindowFactory;
 import javax.media.opengl.GLCapabilities;
 import javax.media.opengl.GLProfile;
 
 import com.jogamp.opengl.util.Animator;
 
+import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
@@ -46,7 +46,7 @@ import com.jogamp.newt.Window;
 import com.jogamp.newt.ScreenMode;
 import com.jogamp.newt.opengl.GLWindow;
 import com.jogamp.newt.util.ScreenModeUtil;
-import com.jogamp.opengl.test.junit.jogl.demos.gl2.gears.Gears;
+import com.jogamp.opengl.test.junit.jogl.demos.es2.GearsES2;
 import com.jogamp.opengl.test.junit.util.UITestCase;
 import java.util.List;
 import javax.media.nativewindow.util.Dimension;
@@ -55,24 +55,28 @@ public class TestScreenMode02NEWT extends UITestCase {
     static GLProfile glp;
     static int width, height;
     
-    static int waitTimeShort = 1000; // 1 sec
-    static int waitTimeLong = 5000; // 5 sec
+    static int waitTimeShort = 2000; // 2 sec
+    static int waitTimeLong = 8000; // 8 sec
 
     @BeforeClass
     public static void initClass() {
-        NativeWindowFactory.initSingleton(true);
         width  = 640;
         height = 480;
         glp = GLProfile.getDefault();
     }
 
+    @AfterClass
+    public static void releaseClass() throws InterruptedException {
+        Thread.sleep(waitTimeShort);
+    }
+    
     static GLWindow createWindow(Screen screen, GLCapabilities caps, int width, int height, boolean onscreen, boolean undecorated) {
         Assert.assertNotNull(caps);
         caps.setOnscreen(onscreen);
 
         GLWindow window = GLWindow.create(screen, caps);
         window.setSize(width, height);
-        window.addGLEventListener(new Gears());
+        window.addGLEventListener(new GearsES2());
         Assert.assertNotNull(window);
         window.setVisible(true);
         Assert.assertTrue(window.isVisible());
@@ -98,8 +102,8 @@ public class TestScreenMode02NEWT extends UITestCase {
         GLWindow window = createWindow(screen, caps, width, height, true /* onscreen */, false /* undecorated */);
         Assert.assertNotNull(window);
 
-        List screenModes = screen.getScreenModes();
-        if(null==screenModes) {
+        List<ScreenMode> screenModes = screen.getScreenModes();
+        if(screenModes.size()==1) {
             // no support ..
             System.err.println("Your platform has no ScreenMode change support, sorry");
             destroyWindow(window);
@@ -145,8 +149,6 @@ public class TestScreenMode02NEWT extends UITestCase {
 
         // check reset ..
 
-        ScreenMode saveOrigMode = (ScreenMode) smOrig.clone();
-
         Assert.assertEquals(true,display.isNativeValid());
         Assert.assertEquals(true,screen.isNativeValid());
         Assert.assertEquals(true,window.isNativeValid());
@@ -169,14 +171,12 @@ public class TestScreenMode02NEWT extends UITestCase {
         System.err.println("[1] current/orig: "+smCurrent);
 
         Assert.assertNotNull(smCurrent);
-        Assert.assertEquals(saveOrigMode, smOrig);
+        Assert.assertEquals(smCurrent, smOrig);
 
         screen.destroy();
 
         Assert.assertEquals(false,screen.isNativeValid());
         Assert.assertEquals(false,display.isNativeValid());
-
-        Thread.sleep(waitTimeShort);
     }
 
     public static void main(String args[]) throws IOException {

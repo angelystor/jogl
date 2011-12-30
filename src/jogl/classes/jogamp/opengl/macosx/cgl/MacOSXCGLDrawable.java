@@ -40,9 +40,17 @@
 
 package jogamp.opengl.macosx.cgl;
 
-import javax.media.nativewindow.*;
-import javax.media.opengl.*;
-import jogamp.opengl.*;
+import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
+import javax.media.nativewindow.NativeSurface;
+import javax.media.opengl.GLDrawableFactory;
+import javax.media.opengl.GLException;
+
+import jogamp.opengl.GLDrawableImpl;
+import jogamp.opengl.GLDynamicLookupHelper;
 
 public abstract class MacOSXCGLDrawable extends GLDrawableImpl {
   // The Java2D/OpenGL pipeline on OS X uses low-level CGLContextObjs
@@ -74,17 +82,56 @@ public abstract class MacOSXCGLDrawable extends GLDrawableImpl {
   // lifetime of a given GLPbuffer. This is not a fully general
   // solution (for example, you can't share textures among a
   // GLPbuffer, a GLJPanel and a GLCanvas simultaneously) but should
-  // be enough to get things off the ground.
-  public static final int NSOPENGL_MODE = 1;
-  public static final int CGL_MODE      = 2;
+  // be enough to get things off the ground.  
+  public enum GLBackendType {
+    NSOPENGL(0), CGL(1); 
+    
+    public final int id;
 
+    GLBackendType(int id){
+        this.id = id;
+    }
+  }
+  private List<WeakReference<MacOSXCGLContext>> createdContexts = new ArrayList<WeakReference<MacOSXCGLContext>>();
+  
+  private boolean haveSetOpenGLMode = false;
+  private GLBackendType openGLMode = GLBackendType.NSOPENGL;
+  
   public MacOSXCGLDrawable(GLDrawableFactory factory, NativeSurface comp, boolean realized) {
     super(factory, comp, realized);
- }
-
+    initOpenGLImpl(getOpenGLMode());
+  }
+  
   protected void setRealizedImpl() {
   }
 
+  protected long getNSViewHandle() {
+      return GLBackendType.NSOPENGL == openGLMode ? getHandle() : null;
+  }
+  
+  protected void registerContext(MacOSXCGLContext ctx) {
+    // NOTE: we need to keep track of the created contexts in order to
+    // implement swapBuffers() because of how Mac OS X implements its
+    // OpenGL window interface
+    synchronized (createdContexts) {
+      createdContexts.add(new WeakReference<MacOSXCGLContext>(ctx));
+    }
+  }
+  protected final void swapBuffersImpl() {
+    // single-buffer is already filtered out @ GLDrawableImpl#swapBuffers()
+    synchronized (createdContexts) {
+        for (Iterator<WeakReference<MacOSXCGLContext>> iter = createdContexts.iterator(); iter.hasNext(); ) {
+          WeakReference<MacOSXCGLContext> ref = iter.next();
+          MacOSXCGLContext ctx = ref.get();
+          if (ctx != null) {
+            ctx.swapBuffers();
+          } else {
+            iter.remove();
+          }
+        }
+    }
+  }  
+    
   public GLDynamicLookupHelper getGLDynamicLookupHelper() {
     return getFactoryImpl().getGLDynamicLookupHelper(0);
   }
@@ -93,7 +140,25 @@ public abstract class MacOSXCGLDrawable extends GLDrawableImpl {
     return Thread.currentThread().getName();
   }
 
-  // Support for "mode switching" as per above
-  public abstract void setOpenGLMode(int mode);
-  public abstract int  getOpenGLMode();
+  // Support for "mode switching" as described in MacOSXCGLDrawable
+  public void setOpenGLMode(GLBackendType mode) {
+      if (mode == openGLMode) {
+        return;
+      }
+      if (haveSetOpenGLMode) {
+        throw new GLException("Can't switch between using NSOpenGLPixelBuffer and CGLPBufferObj more than once");
+      }
+    
+      destroyImpl();
+      if (DEBUG) {
+        System.err.println("Switching context mode " + openGLMode + " -> " + mode);
+      }
+      initOpenGLImpl(mode);
+      openGLMode = mode;
+      haveSetOpenGLMode = true;      
+  }
+  public final GLBackendType getOpenGLMode() { return openGLMode; }
+
+  protected void initOpenGLImpl(GLBackendType backend) { /* nop */ }
+  
 }

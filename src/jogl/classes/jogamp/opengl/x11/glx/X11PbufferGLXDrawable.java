@@ -48,24 +48,18 @@ public class X11PbufferGLXDrawable extends X11GLXDrawable {
                                   /* GLCapabilities caps, 
                                   GLCapabilitiesChooser chooser,
                                   int width, int height */
-    super(factory, target, true);
-
-    if (DEBUG) {
-        System.out.println("Pbuffer config: " + getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration());
-    }
-
-    createPbuffer();
-
-    if (DEBUG) {
-        System.err.println("Created pbuffer " + this);
-    }
+    super(factory, target, false);
   }
 
+  protected void destroyImpl() {
+    setRealized(false);
+  }
+  
   protected void setRealizedImpl() {
     if(realized) {
         createPbuffer();
     } else {
-        destroyImpl();
+        destroyPbuffer();
     }
   }
 
@@ -73,7 +67,7 @@ public class X11PbufferGLXDrawable extends X11GLXDrawable {
     return new X11PbufferGLXContext(this, shareWith);
   }
 
-  protected void destroyImpl() {
+  protected void destroyPbuffer() {
     NativeSurface ns = getNativeSurface();
     if (ns.getSurfaceHandle() != 0) {
       GLX.glXDestroyPbuffer(ns.getDisplayHandle(), ns.getSurfaceHandle());
@@ -82,11 +76,14 @@ public class X11PbufferGLXDrawable extends X11GLXDrawable {
   }
 
   private void createPbuffer() {
-      X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration) getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration();
+      X11GLXGraphicsConfiguration config = (X11GLXGraphicsConfiguration) getNativeSurface().getGraphicsConfiguration();
       AbstractGraphicsScreen aScreen = config.getScreen();
       AbstractGraphicsDevice aDevice = aScreen.getDevice();
       long display = aDevice.getHandle();
-      int screen = aScreen.getIndex();
+
+      if (DEBUG) {
+        System.out.println("Pbuffer config: " + config);
+      }
 
       if (display==0) {
         throw new GLException("Null display");
@@ -129,17 +126,15 @@ public class X11PbufferGLXDrawable extends X11GLXDrawable {
       int width = tmp[0];
       GLX.glXQueryDrawable(display, pbuffer, GLX.GLX_HEIGHT, tmp, 0);
       int height = tmp[0];
-      ((SurfaceChangeable)ns).setSize(width, height);
+      ((SurfaceChangeable)ns).surfaceSizeChanged(width, height);
+      
+      if (DEBUG) {
+        System.err.println("Created pbuffer " + this);
+      }
   }
 
   public int getFloatingPointMode() {
     // Floating-point pbuffers currently require NVidia hardware on X11
     return GLPbuffer.NV_FLOAT;
-  }
-
-  protected void swapBuffersImpl() {
-    if(DEBUG) {
-        System.err.println("unhandled swapBuffersImpl() called for: "+this);
-    }
   }
 }

@@ -40,7 +40,10 @@
 
 package jogamp.opengl;
 
+import com.jogamp.common.util.locks.LockFactory;
 import com.jogamp.common.util.locks.RecursiveLock;
+
+import javax.media.nativewindow.AbstractGraphicsDevice;
 import javax.media.nativewindow.NativeSurface;
 import javax.media.opengl.GL;
 import javax.media.opengl.GLAnimatorControl;
@@ -69,7 +72,7 @@ public class GLPbufferImpl implements GLPbuffer {
   public GLPbufferImpl(GLDrawableImpl pbufferDrawable,
                        GLContext parentContext) {
     GLCapabilitiesImmutable caps = (GLCapabilitiesImmutable)
-         pbufferDrawable.getNativeSurface().getGraphicsConfiguration().getNativeGraphicsConfiguration().getChosenCapabilities();
+         pbufferDrawable.getNativeSurface().getGraphicsConfiguration().getChosenCapabilities();
     if(caps.isOnscreen()) {
         if(caps.isPBuffer()) {
             throw new IllegalArgumentException("Error: Given drawable is Onscreen and Pbuffer: "+pbufferDrawable);
@@ -106,6 +109,8 @@ public class GLPbufferImpl implements GLPbuffer {
 
   public void destroy() {
     if(pbufferDrawable.isRealized()) {
+        final AbstractGraphicsDevice adevice = pbufferDrawable.getNativeSurface().getGraphicsConfiguration().getScreen().getDevice();
+        
         if (null != context && context.isCreated()) {
             try {
                 drawableHelper.invokeGL(pbufferDrawable, context, disposeAction, null);
@@ -116,6 +121,10 @@ public class GLPbufferImpl implements GLPbuffer {
             // drawableHelper.reset();
         }
         pbufferDrawable.destroy();
+        
+        if(null != adevice) {
+            adevice.close();
+        }
     }
   }
 
@@ -255,7 +264,7 @@ public class GLPbufferImpl implements GLPbuffer {
     return pbufferDrawable.getGLProfile();
   }
 
-  private RecursiveLock recurLock = new RecursiveLock();
+  private RecursiveLock recurLock = LockFactory.createRecursiveLock();
 
   public int lockSurface() throws GLException {
     recurLock.lock();
@@ -268,10 +277,6 @@ public class GLPbufferImpl implements GLPbuffer {
 
   public boolean isSurfaceLocked() {
     return recurLock.isLocked();
-  }
-
-  public Throwable getLockedStack() {
-    return recurLock.getLockedStack();
   }
 
   public int getFloatingPointMode() {
