@@ -994,12 +994,14 @@
     <target name="java.build.features" depends="java.build.gl4static"/>
     
     <target name="java.build.gl4static">
+  
         <echo message="Generating GL4 static implementation" />
         <antcall target="java.generate.copy2temp" inheritRefs="true" />
         <gluegen src="${stub.includes.opengl}/gl4bc.c" 
                  outputRootDir="${build.jogl}"
                  config="${config.jogl}/gl-static-gl4bc.cfg"
                  includeRefid="stub.includes.fileset.all.gldesktop"
+                 literalInclude="${stub.includes.gluegen.gg}"
                  emitter="com.jogamp.gluegen.opengl.GLEmitter"
                  debug="false">
             <classpath refid="gluegen-gl.classpath" />
@@ -1033,7 +1035,7 @@
 
     	
     	<!-- this doesn't include the debug version though, will need to check it out later when got more time -->
-		<jar manifest="${build.jogl}/tempversion" destfile="${jogl.static.desktop.jar}" filesonly="true">
+		<jar manifest="${build.jogl}/manifest.mf" destfile="${jogl.static.desktop.jar}" filesonly="true">
 			    	            <fileset dir="${classes}"  includes="${java.part.static.gldesktop}"/>
 		</jar>     	
 	</target>
@@ -1570,7 +1572,7 @@
                      includes="${java.part.gldesktop}"
                      excludes="${java.part.gldesktop.dbg} ${java.part.glugldesktop}"/>
         </jar>
-    	<jar manifest="${build.jogl}/tempversion" destfile="${jogl.static.desktop.jar}" filesonly="true">
+    	<jar manifest="${build.jogl}/manifest.mf" destfile="${jogl.static.desktop.jar}" filesonly="true">
     				    	            <fileset dir="${classes}"  includes="${java.part.static.gldesktop}"/>
     			</jar>     	
         <!-- misc -->

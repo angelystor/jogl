@@ -220,10 +220,6 @@
         <property name="ant.jar"                    value="${ant.home}/lib/ant.jar" />
         <property name="ant-junit.jar"              value="${ant.home}/lib/ant-junit.jar" />
             	
-    	<!-- static jogl jar -->
-    	<property name="jogl.static.desktop.jar" value="${build.jogl}/jogl.static.jar"/>
-
-
         <property name="nativewindow.make"          value="." />
         <property name="nativewindow.build.xml"     value="${nativewindow.make}/build-nativewindow.xml" />
         <property name="build.nativewindow"         value="${build}/nativewindow" />
@@ -243,6 +239,11 @@
         <property name="results.test"              value="${build}/test/results" />
         <property name="build.test"                value="${build}/test/build" />
         <property name="obj.test"                  value="${build.test}/obj"/>
+        
+    	<!-- static jogl jar -->
+    	<property name="jogl.static.desktop.jar" value="${build.jogl}/jogl.static.jar"/>
+
+        
 
         <condition property="obj.custom" value="${custom.libdir}${path.separator}" else="">
           <isset property="custom.libdir"/>
